@@ -90,9 +90,33 @@ export interface CombatEvent {
   isCritical: boolean;
 }
 
+// Ping types for party coordination
+export type PingType = 'move' | 'attack' | 'defend' | 'danger';
+
+export interface MapPing {
+  id: string;
+  playerId: string;
+  username: string;
+  pingType: PingType;
+  x: number;
+  y: number;
+  targetLabel?: string;
+  timestamp: number;
+  duration: number;
+}
+
 // Network message interface
 export interface NetworkMessage {
-  type: 'player_move' | 'player_attack' | 'player_chat' | 'player_spawn' | 'enemy_spawn' | 'combat_event' | 'player_death' | 'loot_drop';
+  type:
+    | 'player_move'
+    | 'player_attack'
+    | 'player_chat'
+    | 'player_spawn'
+    | 'enemy_spawn'
+    | 'combat_event'
+    | 'player_death'
+    | 'loot_drop'
+    | 'party_ping';
   playerId: string;
   data: any;
   timestamp: number;

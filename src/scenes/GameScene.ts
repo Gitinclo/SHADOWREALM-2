@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
-import { Player, Enemy, PlayerClass, PlayerStats, Ability } from '../types';
+import { Player, Enemy, PlayerClass, PlayerStats, Ability, MapPing } from '../types';
 import { PlayerController } from '../systems/PlayerController';
 import { CombatSystem } from '../systems/CombatSystem';
 import { WorldGenerator } from '../systems/WorldGenerator';
 import { NetworkManager } from '../systems/NetworkManager';
-import { MiniMap, WorldData } from '../systems/MiniMap';
+import { MiniMap, WorldData, PING_CONFIG, PartyMemberLocation } from '../systems/MiniMap';
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -13,6 +13,8 @@ export class GameScene extends Phaser.Scene {
   private enemyGroup!: Phaser.Physics.Arcade.Group;
   private enemyData: Map<string, Enemy> = new Map();
   private enemyHealthBars: Map<string, Phaser.GameObjects.Graphics> = new Map();
+  private partyMembers: Map<string, PartyMemberLocation> = new Map();
+  private partySprites: Map<string, Phaser.GameObjects.Container> = new Map();
   private playerController!: PlayerController;
   private combatSystem!: CombatSystem;
   private worldGenerator!: WorldGenerator;
@@ -29,6 +31,7 @@ export class GameScene extends Phaser.Scene {
   private shieldGraphic?: Phaser.GameObjects.Arc;
   private waypointMarker?: Phaser.GameObjects.Arc;
   private enemyIdCounter: number = 0;
+  private lastMoveBroadcast: number = 0;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -56,6 +59,8 @@ export class GameScene extends Phaser.Scene {
     this.enemies.clear();
     this.enemyData.clear();
     this.enemyHealthBars.clear();
+    this.partyMembers.clear();
+    this.partySprites.clear();
     this.damageTexts = [];
 
     // Generate procedural tileset texture so tilemap layers have valid tiles
@@ -72,9 +77,6 @@ export class GameScene extends Phaser.Scene {
     this.createWorldTiles(worldData);
     this.spawnWorldObjectives(worldData);
 
-    // Initialize Mini-Map HUD component
-    this.miniMap = new MiniMap(worldData);
-
     // Set physics world bounds to match the 2560x1440 map
     this.physics.world.setBounds(0, 0, 2560, 1440);
 
@@ -85,6 +87,17 @@ export class GameScene extends Phaser.Scene {
     this.player.setCollideWorldBounds(true);
     this.player.setBounce(0.2);
     this.player.setDepth(10);
+
+    // Initialize Mini-Map HUD component with party ping broadcast handler
+    this.miniMap = new MiniMap(worldData, (ping: MapPing) => {
+      this.networkManager.sendPing(ping);
+      this.spawnWorldPingEffect(ping);
+      this.logPingToChat(ping);
+    });
+    this.miniMap.setLocalPlayerInfo(
+      this.playerData.id,
+      `${this.playerData.class.toUpperCase()}-${this.playerData.id.slice(-4)}`
+    );
 
     // Create in-world waypoint beacon
     this.waypointMarker = this.add.circle(640, 360, 22, 0x00ffff, 0.12);
@@ -101,7 +114,7 @@ export class GameScene extends Phaser.Scene {
     this.camera.startFollow(this.player, true, 0.1, 0.1);
     this.camera.setBounds(0, 0, 2560, 1440);
 
-    // Setup input (Support both Q/W/E/R or 1/2/3/4 + Space for abilities, M for MiniMap zoom, and DOM HUD buttons)
+    // Setup input (Support both Q/W/E/R or 1/2/3/4 + Space for abilities, M for MiniMap zoom, G for cursor ping)
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.input.keyboard!.on('keydown-SPACE', () => this.castAbility(0));
     this.input.keyboard!.on('keydown-Q', () => this.castAbility(0));
@@ -112,6 +125,11 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-R', () => this.castAbility(3));
     this.input.keyboard!.on('keydown-FOUR', () => this.castAbility(3));
     this.input.keyboard!.on('keydown-M', () => this.miniMap?.toggleZoom());
+    this.input.keyboard!.on('keydown-G', () => {
+      const pointer = this.input.activePointer;
+      pointer.updateWorldPoint(this.camera);
+      this.miniMap?.triggerLocalPing(pointer.worldX, pointer.worldY);
+    });
 
     this.bindDOMAbilityButtons();
 
@@ -127,25 +145,144 @@ export class GameScene extends Phaser.Scene {
       // Handled via proximity AI attack in updateEnemyAI
     });
 
-    // Attempt WebSocket connection gracefully (non-fatal if offline)
+    // Connect to real-time party WebSocket server on /ws
     const serverStatusEl = document.getElementById('server-status');
     this.networkManager
-      .connect('ws://localhost:8080')
+      .connect()
       .then(() => {
         if (serverStatusEl) {
-          serverStatusEl.textContent = '● Connected';
-          serverStatusEl.style.color = '#00ff00';
+          serverStatusEl.textContent = '● Party Synced';
+          serverStatusEl.style.color = '#00ff9d';
         }
       })
       .catch(() => {
         if (serverStatusEl) {
-          serverStatusEl.textContent = '● Local Realm (Solo)';
+          serverStatusEl.textContent = '● Party Tab Sync';
           serverStatusEl.style.color = '#00ffff';
         }
       });
 
+    this.networkManager.on('party_ping', (ping: MapPing) => {
+      this.miniMap?.addPing(ping);
+      this.spawnWorldPingEffect(ping);
+      this.logPingToChat(ping);
+    });
+
+    this.networkManager.on('player_move', (data: any) => {
+      if (!data?.playerId || data.playerId === this.playerData.id || !data.position) return;
+      this.partyMembers.set(data.playerId, {
+        playerId: data.playerId,
+        username: data.username || `Ally-${String(data.playerId).slice(-4)}`,
+        x: data.position.x,
+        y: data.position.y,
+        rotation: data.rotation || 0,
+        lastUpdated: Date.now(),
+      });
+      this.updatePartyMemberSprite(data.playerId);
+    });
+
+    this.networkManager.on('player_spawn', (data: any) => {
+      const playerCountEl = document.getElementById('player-count');
+      if (playerCountEl && typeof data?.playerCount === 'number') {
+        playerCountEl.textContent = `Party: ${Math.max(1, data.playerCount)}`;
+      }
+    });
+
     this.networkManager.on('enemy_spawn', (data: any) => this.handleEnemySpawn(data));
     this.networkManager.on('combat_event', (data: any) => this.handleCombatEvent(data));
+  }
+
+  private spawnWorldPingEffect(ping: MapPing) {
+    const cfg = PING_CONFIG[ping.pingType] || PING_CONFIG.move;
+
+    // 1. Expanding outer sonar ring in the 2D game world
+    for (let i = 0; i < 2; i++) {
+      const ring = this.add.circle(ping.x, ping.y, 12, cfg.hex, 0.15);
+      ring.setStrokeStyle(3, cfg.hex, 0.95);
+      ring.setDepth(18);
+
+      this.tweens.add({
+        targets: ring,
+        radius: 95,
+        alpha: 0,
+        delay: i * 320,
+        duration: 1100,
+        repeat: 2,
+        onComplete: () => ring.destroy(),
+      });
+    }
+
+    // 2. Central tactical beacon marker
+    const beacon = this.add.circle(ping.x, ping.y, 8, cfg.hex, 0.9);
+    beacon.setStrokeStyle(2, 0xffffff, 1);
+    beacon.setDepth(19);
+
+    // 3. Floating callout banner in world space
+    const calloutText = `${cfg.icon} ${cfg.label} [${ping.username}]`;
+    const banner = this.add
+      .text(ping.x, ping.y - 34, calloutText, {
+        fontSize: '13px',
+        color: cfg.color,
+        fontStyle: 'bold',
+        backgroundColor: 'rgba(10,14,39,0.9)',
+        padding: { x: 7, y: 4 },
+      })
+      .setOrigin(0.5)
+      .setDepth(24);
+
+    this.tweens.add({
+      targets: [beacon, banner],
+      alpha: { from: 1, to: 0 },
+      delay: 3400,
+      duration: 900,
+      onComplete: () => {
+        beacon.destroy();
+        banner.destroy();
+      },
+    });
+  }
+
+  private logPingToChat(ping: MapPing) {
+    const chatMessages = document.getElementById('chat-messages');
+    if (!chatMessages) return;
+    const cfg = PING_CONFIG[ping.pingType] || PING_CONFIG.move;
+    const targetInfo = ping.targetLabel ? ` at ${ping.targetLabel}` : ` at (${ping.x}, ${ping.y})`;
+    const msgDiv = document.createElement('div');
+    msgDiv.style.marginBottom = '4px';
+    msgDiv.innerHTML = `<span style="color:${cfg.color};font-weight:bold;">${cfg.icon} [PING - ${ping.username}]:</span> ${cfg.label}${targetInfo}`;
+    chatMessages.appendChild(msgDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  private updatePartyMemberSprite(playerId: string) {
+    const ally = this.partyMembers.get(playerId);
+    if (!ally) return;
+
+    let container = this.partySprites.get(playerId);
+    if (!container) {
+      const body = this.add.circle(0, 0, 15, 0x38bdf8, 0.85);
+      body.setStrokeStyle(2, 0xffffff, 0.95);
+      const label = this.add
+        .text(0, -26, ally.username, {
+          fontSize: '11px',
+          color: '#38bdf8',
+          fontStyle: 'bold',
+          backgroundColor: 'rgba(10,14,39,0.75)',
+          padding: { x: 4, y: 1 },
+        })
+        .setOrigin(0.5);
+
+      container = this.add.container(ally.x, ally.y, [body, label]);
+      container.setDepth(9);
+      this.partySprites.set(playerId, container);
+    } else {
+      container.setPosition(ally.x, ally.y);
+    }
+
+    const playerCountEl = document.getElementById('player-count');
+    if (playerCountEl) {
+      playerCountEl.textContent = `Party: ${1 + this.partyMembers.size}`;
+    }
   }
 
   private spawnWorldObjectives(worldData: WorldData) {
@@ -160,7 +297,7 @@ export class GameScene extends Phaser.Scene {
       riftInner.setDepth(5);
       riftInner.setInteractive({ useHandCursor: true });
       riftInner.on('pointerdown', () => {
-        this.miniMap?.setWaypoint(dungeon.x, dungeon.y);
+        this.miniMap?.triggerLocalPing(dungeon.x, dungeon.y, 'attack');
       });
 
       this.tweens.add({
@@ -191,7 +328,7 @@ export class GameScene extends Phaser.Scene {
       npcCircle.setInteractive({ useHandCursor: true });
 
       npcCircle.on('pointerdown', () => {
-        this.miniMap?.setWaypoint(npc.x, npc.y);
+        this.miniMap?.triggerLocalPing(npc.x, npc.y, 'move');
         const msg = this.add.text(npc.x, npc.y - 42, `"${npc.dialogue}"`, {
           fontSize: '12px',
           color: '#00ff9d',
@@ -296,6 +433,7 @@ export class GameScene extends Phaser.Scene {
       this.miniMap.update(
         this.playerData,
         this.enemyData,
+        this.partyMembers,
         {
           x: this.camera.scrollX,
           y: this.camera.scrollY,
@@ -314,16 +452,19 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Send player position to network if online
-    if (this.networkManager.isOnline()) {
+    // Throttle player position broadcasts to party (20Hz)
+    const now = Date.now();
+    if (this.networkManager.isOnline() && now - this.lastMoveBroadcast > 50) {
+      this.lastMoveBroadcast = now;
       this.networkManager.sendMessage({
         type: 'player_move',
         playerId: this.playerData.id,
         data: {
+          username: `${this.playerData.class.toUpperCase()}-${this.playerData.id.slice(-4)}`,
           position: this.playerData.position,
           rotation: this.player.rotation,
         },
-        timestamp: Date.now(),
+        timestamp: now,
       });
     }
 
