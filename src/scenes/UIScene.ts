@@ -15,11 +15,11 @@ export class UIScene extends Phaser.Scene {
 
   create() {
     // Create health bar
-    this.healthBar = this.make.graphics({ x: 20, y: 20, add: true });
+    this.healthBar = this.add.graphics({ x: 20, y: 20 });
     this.drawHealthBar(100, 100);
 
     // Create mana bar
-    this.manaBar = this.make.graphics({ x: 20, y: 50, add: true });
+    this.manaBar = this.add.graphics({ x: 20, y: 50 });
     this.drawManaBar(50, 50);
 
     // Create text displays
@@ -54,7 +54,7 @@ export class UIScene extends Phaser.Scene {
     this.healthBar.fillRect(0, 0, 200, 20);
     this.healthBar.fillStyle(0xff0000, 1);
     this.healthBar.fillRect(0, 0, (current / max) * 200, 20);
-    this.healthBar.strokeStyle(0xffffff, 2);
+    this.healthBar.lineStyle(2, 0xffffff, 1);
     this.healthBar.strokeRect(0, 0, 200, 20);
   }
 
@@ -64,7 +64,7 @@ export class UIScene extends Phaser.Scene {
     this.manaBar.fillRect(0, 0, 200, 20);
     this.manaBar.fillStyle(0x0000ff, 1);
     this.manaBar.fillRect(0, 0, (current / max) * 200, 20);
-    this.manaBar.strokeStyle(0xffffff, 2);
+    this.manaBar.lineStyle(2, 0xffffff, 1);
     this.manaBar.strokeRect(0, 0, 200, 20);
   }
 

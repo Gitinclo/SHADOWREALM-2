@@ -87,22 +87,131 @@
 
         .hud-top-right {
             position: fixed;
-            top: 20px;
-            right: 20px;
+            top: 16px;
+            right: 16px;
             color: #ffffff;
-            font-size: 14px;
+            font-size: 13px;
             text-align: right;
             z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+        }
+
+        .minimap-container {
+            width: 232px;
+            background: rgba(10, 14, 39, 0.88);
+            border: 1px solid #8b5cba;
+            border-radius: 6px;
+            padding: 6px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.65), 0 0 12px rgba(179, 102, 255, 0.2);
+            pointer-events: auto;
+            user-select: none;
+        }
+
+        .minimap-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 11px;
+            font-weight: bold;
+            color: #d8b4fe;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .minimap-zoom-btn {
+            background: #2a1f4a;
+            border: 1px solid #b366ff;
+            color: #00ffff;
+            font-size: 10px;
+            font-weight: bold;
+            padding: 1px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .minimap-zoom-btn:hover {
+            background: #463278;
+        }
+
+        #minimap-canvas {
+            width: 218px;
+            height: 122px;
+            border: 1px solid #3c2a63;
+            border-radius: 4px;
+            background-color: #080b1f;
+            cursor: crosshair;
+            display: block;
+        }
+
+        .minimap-objective {
+            margin-top: 5px;
+            font-size: 11px;
+            color: #00ffff;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .minimap-legend {
+            margin-top: 5px;
+            padding-top: 4px;
+            border-top: 1px solid rgba(139, 92, 186, 0.3);
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #cbd5e1;
+        }
+
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .legend-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .legend-diamond {
+            width: 7px;
+            height: 7px;
+            background: #ffb703;
+            border: 1px solid #7b2cff;
+            transform: rotate(45deg);
+            display: inline-block;
+        }
+
+        .telemetry-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background: rgba(10, 14, 39, 0.78);
+            border: 1px solid #3c2a63;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
         }
 
         .hud-bottom-right {
             position: fixed;
-            bottom: 20px;
+            bottom: 90px;
             right: 20px;
             color: #ffffff;
             font-size: 12px;
             text-align: right;
             z-index: 100;
+            background: rgba(10, 14, 39, 0.72);
+            border: 1px solid #3c2a63;
+            padding: 5px 9px;
+            border-radius: 4px;
         }
 
         .stat-bar {
@@ -247,14 +356,30 @@
         </div>
 
         <div class="hud-top-right">
-            <div id="server-status" style="color: #00ff00;">● Connected</div>
-            <div id="fps-counter" style="margin-top: 5px;">FPS: 60</div>
-            <div id="player-count" style="margin-top: 5px;">Players: 1</div>
+            <div class="minimap-container" title="Left-click to set waypoint • Right-click to clear • Press M to zoom">
+                <div class="minimap-header">
+                    <span>Shadow Radar</span>
+                    <button id="minimap-zoom-btn" class="minimap-zoom-btn" title="Toggle Zoom (M)">1x</button>
+                </div>
+                <canvas id="minimap-canvas" width="218" height="122"></canvas>
+                <div id="minimap-objective" class="minimap-objective">🎯 Scanning realm...</div>
+                <div class="minimap-legend">
+                    <span class="legend-item"><span class="legend-dot" style="background:#00ffff;"></span>You</span>
+                    <span class="legend-item"><span class="legend-dot" style="background:#ff2a55;"></span>Foe</span>
+                    <span class="legend-item"><span class="legend-dot" style="background:#00ff9d;"></span>NPC</span>
+                    <span class="legend-item"><span class="legend-diamond"></span>Rift</span>
+                </div>
+            </div>
+            <div class="telemetry-row">
+                <span id="server-status" style="color: #00ff00;">● Connected</span>
+                <span id="fps-counter">FPS: 60</span>
+                <span id="player-count">Players: 1</span>
+            </div>
         </div>
 
         <div class="hud-bottom-right">
             <div id="coordinates">X: 0 Y: 0</div>
-            <div id="enemies-nearby" style="margin-top: 5px;">Enemies: 0</div>
+            <div id="enemies-nearby" style="margin-top: 4px;">Enemies: 0</div>
         </div>
     </div>
 

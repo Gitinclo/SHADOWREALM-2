@@ -5,12 +5,13 @@ import { MenuScene } from './scenes/MenuScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
+  parent: 'game',
   width: 1280,
   height: 720,
   physics: {
     default: 'arcade',
     arcade: {
-      gravity: { y: 0 },
+      gravity: { x: 0, y: 0 },
       debug: false,
       tileBias: 16,
     },
@@ -18,7 +19,6 @@ const config: Phaser.Types.Core.GameConfig = {
   render: {
     pixelArt: false,
     antialias: true,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   scale: {
     mode: Phaser.Scale.FIT,

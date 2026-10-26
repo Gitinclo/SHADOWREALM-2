@@ -68,13 +68,17 @@ export class WorldGenerator {
     const dungeonCount = Phaser.Math.Between(5, 10);
 
     for (let i = 0; i < dungeonCount; i++) {
-      let x, y, valid = false;
+      let x = 0;
+      let y = 0;
+      let valid = false;
+      let attempts = 0;
 
       // Find valid dungeon location (in mountains)
-      while (!valid) {
+      while (!valid && attempts < 200) {
         x = Phaser.Math.Between(0, width - 1);
         y = Phaser.Math.Between(0, height - 1);
-        valid = terrain[y] && terrain[y][x] === 3; // Mountain
+        valid = Boolean(terrain[y] && terrain[y][x] === 3); // Mountain
+        attempts++;
       }
 
       dungeons.push({
@@ -107,13 +111,17 @@ export class WorldGenerator {
     ];
 
     for (let i = 0; i < npcCount; i++) {
-      let x, y, valid = false;
+      let x = 0;
+      let y = 0;
+      let valid = false;
+      let attempts = 0;
 
       // Find valid NPC location (not in water or mountains)
-      while (!valid) {
+      while (!valid && attempts < 200) {
         x = Phaser.Math.Between(0, width - 1);
         y = Phaser.Math.Between(0, height - 1);
-        valid = terrain[y] && terrain[y][x] > 0 && terrain[y][x] < 3;
+        valid = Boolean(terrain[y] && terrain[y][x] > 0 && terrain[y][x] < 3);
+        attempts++;
       }
 
       const npcType = Phaser.Utils.Array.GetRandom(npcTypes);

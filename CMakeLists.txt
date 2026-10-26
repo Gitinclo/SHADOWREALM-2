@@ -56,10 +56,14 @@ if(NOT ANDROID)
     endif()
     message(STATUS "✅ ImGui backends found")
 
-    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/main.cpp")
-        message(FATAL_ERROR "❌ main.cpp not found!")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/main_desktop.cpp")
+        set(DESKTOP_MAIN_SRC "main_desktop.cpp")
+    elseif(EXISTS "${CMAKE_SOURCE_DIR}/main.cpp")
+        set(DESKTOP_MAIN_SRC "main.cpp")
+    else()
+        message(FATAL_ERROR "❌ Neither main_desktop.cpp nor main.cpp found!")
     endif()
-    message(STATUS "✅ Source file: main.cpp")
+    message(STATUS "✅ Source file: ${DESKTOP_MAIN_SRC}")
 
     set(IMGUI_SOURCES
         imgui/imgui.cpp
@@ -72,7 +76,7 @@ if(NOT ANDROID)
 
     # ✅ Target defined FIRST — all target_link_libraries come after this
     add_executable(shadowrealm
-        main.cpp
+        ${DESKTOP_MAIN_SRC}
         ${IMGUI_SOURCES}
     )
 
