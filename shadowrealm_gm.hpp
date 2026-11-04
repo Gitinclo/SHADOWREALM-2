@@ -29,30 +29,37 @@ class  Game;
 //  SECTION 1 — Privileges & Session
 // ============================================================================
 enum class GMPriv : uint32_t {
-    None        = 0,
-    Godmode     = 1u << 0,
-    SpawnEnemy  = 1u << 1,
-    SetHP       = 1u << 2,
-    GiveLoot    = 1u << 3,
-    Teleport    = 1u << 4,
-    SetLevel    = 1u << 5,
-    TimeControl = 1u << 6,
-    ToggleHUD   = 1u << 7,
-    All         = 0xFFFFFFFFu
+    None            = 0,
+    Godmode         = 1u << 0,
+    SpawnEnemy      = 1u << 1,
+    SetHP           = 1u << 2,
+    GiveLoot        = 1u << 3,
+    Teleport        = 1u << 4,
+    SetLevel        = 1u << 5,
+    TimeControl     = 1u << 6,
+    ToggleHUD       = 1u << 7,
+    ModeratePlayers = 1u << 8,
+    BroadcastDecree = 1u << 9,
+    All             = 0xFFFFFFFFu
 };
 inline GMPriv operator|(GMPriv a, GMPriv b){ return (GMPriv)((uint32_t)a|(uint32_t)b); }
 inline bool   hasBit(uint32_t m, GMPriv p){ return (m & (uint32_t)p) != 0; }
 
+// Canonical Root Administrator / GM / Moderator Account & Contact
+static constexpr const char* SUPREME_ADMIN_EMAIL   = "creatergame31@gmail.com";
+static constexpr const char* GM_MODERATOR_CONTACT  = "creatergame31@gmail.com";
+
 struct GMSession {
-    bool     active      = false;
-    uint32_t privMask    = 0;
-    uint64_t token       = 0;
-    uint64_t expiresAtMs = 0;
-    bool     godmode     = false;
-    bool     timeFrozen  = false;
-    float    timeScale   = 1.0f;
+    bool        active       = false;
+    std::string accountEmail = SUPREME_ADMIN_EMAIL;
+    uint32_t    privMask     = 0;
+    uint64_t    token        = 0;
+    uint64_t    expiresAtMs  = 0;
+    bool        godmode      = false;
+    bool        timeFrozen   = false;
+    float       timeScale    = 1.0f;
     // Anti-tamper canary: token XOR a secret. Checked on every privileged call.
-    uint64_t canary      = 0;
+    uint64_t    canary       = 0;
 };
 
 // ============================================================================

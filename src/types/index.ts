@@ -116,7 +116,10 @@ export interface NetworkMessage {
     | 'combat_event'
     | 'player_death'
     | 'loot_drop'
-    | 'party_ping';
+    | 'party_ping'
+    | 'siege_delta'
+    | 'save_sync'
+    | 'gm_broadcast';
   playerId: string;
   data: any;
   timestamp: number;

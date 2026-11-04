@@ -178,6 +178,15 @@ export class NetworkManager extends EventEmitter {
         this.emit('party_ping', ping);
         break;
       }
+      case 'siege_delta':
+        this.emit('siege_delta', message.data);
+        break;
+      case 'save_sync':
+        this.emit('save_sync', message.data);
+        break;
+      case 'gm_broadcast':
+        this.emit('gm_broadcast', message.data);
+        break;
       default:
         console.warn('Unknown message type:', message.type);
     }

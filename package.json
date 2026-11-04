@@ -20,8 +20,10 @@
   "author": "Manus AI",
   "license": "MIT",
   "dependencies": {
+    "@types/three": "^0.187.0",
     "dotenv": "^16.3.1",
     "phaser": "^3.55.2",
+    "three": "^0.187.0",
     "ws": "^8.14.2"
   },
   "devDependencies": {

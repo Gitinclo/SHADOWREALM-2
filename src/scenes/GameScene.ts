@@ -5,6 +5,7 @@ import { CombatSystem } from '../systems/CombatSystem';
 import { WorldGenerator } from '../systems/WorldGenerator';
 import { NetworkManager } from '../systems/NetworkManager';
 import { MiniMap, WorldData, PING_CONFIG, PartyMemberLocation } from '../systems/MiniMap';
+import { VoxelRealmsHUD } from '../systems/VoxelRealmsHUD';
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -20,6 +21,7 @@ export class GameScene extends Phaser.Scene {
   private worldGenerator!: WorldGenerator;
   private networkManager!: NetworkManager;
   private miniMap!: MiniMap;
+  private voxelHUD?: VoxelRealmsHUD;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private camera!: Phaser.Cameras.Scene2D.Camera;
   private worldLayer!: Phaser.Tilemaps.TilemapLayer;
@@ -32,6 +34,7 @@ export class GameScene extends Phaser.Scene {
   private waypointMarker?: Phaser.GameObjects.Arc;
   private enemyIdCounter: number = 0;
   private lastMoveBroadcast: number = 0;
+  private gmGodmodeEnabled: boolean = false;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -99,6 +102,37 @@ export class GameScene extends Phaser.Scene {
       `${this.playerData.class.toUpperCase()}-${this.playerData.id.slice(-4)}`
     );
 
+    // Initialize 5-Pillar Voxel Realms HUD & 3D Viewport Switcher
+    this.voxelHUD = VoxelRealmsHUD.getInstance({
+      onTriggerWorldPing: (x, y, type) => {
+        this.miniMap?.triggerLocalPing(x, y, type);
+      },
+      onBroadcastNetworkMessage: (type, data) => {
+        this.networkManager.sendMessage({
+          type,
+          playerId: this.playerData.id,
+          data,
+          timestamp: Date.now(),
+        });
+      },
+      onGMAction: (action) => {
+        if (action.type === 'godmode') {
+          this.gmGodmodeEnabled = Boolean(action.value);
+          this.playerData.stats.health = this.playerData.stats.maxHealth;
+          this.playerData.stats.mana = this.playerData.stats.maxMana;
+        } else if (action.type === 'teleport' && action.value) {
+          this.player.setPosition(action.value.x, action.value.y);
+          this.playerData.position = { x: action.value.x, y: action.value.y };
+        } else if (action.type === 'smite_enemies') {
+          const allEnemies = Array.from(this.enemyData.values());
+          allEnemies.forEach((enemy) => this.enemyDeath(enemy));
+        } else if (action.type === 'time_scale' && typeof action.value === 'number') {
+          this.time.timeScale = action.value;
+          this.physics.world.timeScale = 1 / Math.max(0.25, action.value);
+        }
+      },
+    });
+
     // Create in-world waypoint beacon
     this.waypointMarker = this.add.circle(640, 360, 22, 0x00ffff, 0.12);
     this.waypointMarker.setStrokeStyle(2, 0x00ffff, 0.75);
@@ -151,7 +185,7 @@ export class GameScene extends Phaser.Scene {
       .connect()
       .then(() => {
         if (serverStatusEl) {
-          serverStatusEl.textContent = '● Party Synced';
+          serverStatusEl.textContent = '● Party & Siege Synced';
           serverStatusEl.style.color = '#00ff9d';
         }
       })
@@ -166,6 +200,20 @@ export class GameScene extends Phaser.Scene {
       this.miniMap?.addPing(ping);
       this.spawnWorldPingEffect(ping);
       this.logPingToChat(ping);
+    });
+
+    this.networkManager.on('siege_delta', (delta: any) => {
+      this.voxelHUD?.applyRemoteSiegeDelta(delta);
+    });
+
+    this.networkManager.on('save_sync', (envelope: any) => {
+      this.voxelHUD?.applyRemoteSaveEnvelope(envelope);
+    });
+
+    this.networkManager.on('gm_broadcast', (decree: any) => {
+      if (decree?.message) {
+        this.voxelHUD?.displayGMBroadcastBanner(decree);
+      }
     });
 
     this.networkManager.on('player_move', (data: any) => {
@@ -837,6 +885,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   private enemyAttack(enemy: Enemy) {
+    if (this.gmGodmodeEnabled) {
+      const immuneText = this.add
+        .text(this.player.x, this.player.y - 24, '👑 GM IMMUNE', {
+          fontSize: '14px',
+          color: '#fbbf24',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(20);
+      immuneText.setData('startY', this.player.y - 24);
+      this.damageTexts.push(immuneText);
+      return;
+    }
+
     let damage = this.combatSystem.calculateDamage(
       enemy.stats,
       this.playerData.stats,
