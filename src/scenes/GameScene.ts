@@ -123,6 +123,42 @@ export class GameScene extends Phaser.Scene {
         } else if (action.type === 'teleport' && action.value) {
           this.player.setPosition(action.value.x, action.value.y);
           this.playerData.position = { x: action.value.x, y: action.value.y };
+        } else if (action.type === 'teleport_all_players' && action.value) {
+          this.player.setPosition(action.value.x, action.value.y);
+          this.playerData.position = { x: action.value.x, y: action.value.y };
+          let idx = 1;
+          this.partyMembers.forEach((ally, pId) => {
+            ally.x = action.value.x + (idx % 4) * 24;
+            ally.y = action.value.y + Math.floor(idx / 4) * 24;
+            idx++;
+            this.updatePartyMemberSprite(pId);
+          });
+        } else if (action.type === 'spawn_item' || action.type === 'spawn_multiple_items') {
+          const qty = action.value?.quantity ?? 1;
+          const itemName = action.value?.itemName || 'Immortal Artifact';
+          this.playerData.inventory.items.push({
+            id: `item_${Date.now()}`,
+            name: itemName,
+            type: 'weapon',
+            rarity: 'legendary',
+            stats: { strength: 50 },
+            quantity: qty,
+            description: 'Spawned via GM Command Console',
+          });
+          const dropText = this.add
+            .text(this.player.x, this.player.y - 36, `📦 +${qty}x ${itemName}`, {
+              fontSize: '15px',
+              color: '#fbbf24',
+              fontStyle: 'bold',
+              backgroundColor: 'rgba(8,10,16,0.88)',
+              padding: { x: 6, y: 3 },
+            })
+            .setOrigin(0.5)
+            .setDepth(25);
+          dropText.setData('startY', this.player.y - 36);
+          this.damageTexts.push(dropText);
+        } else if (action.type === 'set_cultivation_realm' && action.value) {
+          this.playerData.stats.level = Math.max(1, (action.value.realmIndex + 1) * 10);
         } else if (action.type === 'smite_enemies') {
           const allEnemies = Array.from(this.enemyData.values());
           allEnemies.forEach((enemy) => this.enemyDeath(enemy));
@@ -213,6 +249,59 @@ export class GameScene extends Phaser.Scene {
     this.networkManager.on('gm_broadcast', (decree: any) => {
       if (decree?.message) {
         this.voxelHUD?.displayGMBroadcastBanner(decree);
+      }
+    });
+
+    this.networkManager.on('server_telemetry', (telemetry: any) => {
+      if (telemetry) {
+        this.voxelHUD?.pushServerTelemetry(telemetry);
+      }
+    });
+
+    this.networkManager.on('kick_player', (payload: any) => {
+      const targetUserId = payload?.targetUserId || payload?.data?.targetUserId;
+      if (targetUserId && this.partyMembers.has(targetUserId)) {
+        this.partyMembers.delete(targetUserId);
+        const sprite = this.partySprites.get(targetUserId);
+        if (sprite) {
+          sprite.destroy();
+          this.partySprites.delete(targetUserId);
+        }
+      }
+      if (targetUserId === this.playerData.id) {
+        this.networkManager.disconnect();
+        if (serverStatusEl) {
+          serverStatusEl.textContent = '● Kicked by GM';
+          serverStatusEl.style.color = '#ef4444';
+        }
+      }
+    });
+
+    this.networkManager.on('ban_player', (payload: any) => {
+      const targetUserId = payload?.targetUserId || payload?.data?.targetUserId;
+      if (targetUserId && this.partyMembers.has(targetUserId)) {
+        this.partyMembers.delete(targetUserId);
+        const sprite = this.partySprites.get(targetUserId);
+        if (sprite) {
+          sprite.destroy();
+          this.partySprites.delete(targetUserId);
+        }
+      }
+      if (targetUserId === this.playerData.id) {
+        this.networkManager.disconnect();
+        if (serverStatusEl) {
+          serverStatusEl.textContent = '● Banned by GM';
+          serverStatusEl.style.color = '#ef4444';
+        }
+      }
+    });
+
+    this.networkManager.on('gm_command', (payload: any) => {
+      if (payload?.action === 'teleport_all_players' && payload?.data) {
+        const tx = Number(payload.data.x) || 640;
+        const ty = Number(payload.data.y) || 360;
+        this.player.setPosition(tx, ty);
+        this.playerData.position = { x: tx, y: ty };
       }
     });
 

@@ -1,20 +1,29 @@
-// Pure, framework-agnostic Four-Path Immortal Xianxia Cultivation & Realm Suppression Engine
+// Pure, framework-agnostic Four-Path Immortal Xianxia Cultivation & Realm Suppression Engine (2030.1 Edition)
 
 export type CultivationPath = 'qi' | 'body' | 'soul' | 'mind';
 
 export type KarmaAlignment = 'green_righteous' | 'neutral_wanderer' | 'red_blood_fiend';
 
+export type CultivationEpoch =
+  | 'Mortal Dao'
+  | 'Immortal & Sage'
+  | 'Great Dao Chaos'
+  | 'Ultimate Origin'
+  | '2030 Cosmic Singularity';
+
 export interface RealmDefinition {
   index: number;
   name: string;
   chineseTitle: string;
-  epoch: 'Mortal Dao' | 'Immortal & Sage' | 'Great Dao Chaos' | 'Ultimate Origin';
+  epoch: CultivationEpoch;
   baseLifespanYears: number;
   baseQiCapacity: number;
   tribulationLightningBolts: number;
 }
 
-// 23 Canonical Immortal Xianxia Realms (0 to 22), each with 9 layers (1 to 9)
+export const MAX_REALM_INDEX = 29;
+
+// 30 Canonical Immortal & 2030 Cosmic Realms (0 to 29), each with 9 layers (1 to 9)
 export const CULTIVATION_REALMS: readonly RealmDefinition[] = [
   // Epoch I: Mortal Dao (0 - 5)
   { index: 0, name: 'Qi Refinement', chineseTitle: '煉氣', epoch: 'Mortal Dao', baseLifespanYears: 120, baseQiCapacity: 100, tribulationLightningBolts: 1 },
@@ -46,11 +55,20 @@ export const CULTIVATION_REALMS: readonly RealmDefinition[] = [
   { index: 20, name: 'Boundless Monarch', chineseTitle: '無量帝君', epoch: 'Ultimate Origin', baseLifespanYears: 5e12, baseQiCapacity: 1e22, tribulationLightningBolts: 810 },
   { index: 21, name: 'Supreme Primordial', chineseTitle: '太初至尊', epoch: 'Ultimate Origin', baseLifespanYears: 25e12, baseQiCapacity: 1e23, tribulationLightningBolts: 900 },
   { index: 22, name: 'Ultimate Origin', chineseTitle: '終極本源', epoch: 'Ultimate Origin', baseLifespanYears: 999e12, baseQiCapacity: 1e24, tribulationLightningBolts: 999 },
+
+  // Epoch V: 2030 Cosmic Singularity (23 - 29)
+  { index: 23, name: 'Chrono-Dimensional Sovereign', chineseTitle: '時空維度主宰', epoch: '2030 Cosmic Singularity', baseLifespanYears: 5e15, baseQiCapacity: 1e25, tribulationLightningBolts: 1080 },
+  { index: 24, name: 'Quantum Astral Emperor', chineseTitle: '量子星河大帝', epoch: '2030 Cosmic Singularity', baseLifespanYears: 25e15, baseQiCapacity: 1e26, tribulationLightningBolts: 1296 },
+  { index: 25, name: 'Multiverse Causality Weaver', chineseTitle: '多元因果織者', epoch: '2030 Cosmic Singularity', baseLifespanYears: 1e17, baseQiCapacity: 1e27, tribulationLightningBolts: 1512 },
+  { index: 26, name: 'Hyper-Void Dyson Monarch', chineseTitle: '超維戴森神君', epoch: '2030 Cosmic Singularity', baseLifespanYears: 5e17, baseQiCapacity: 1e28, tribulationLightningBolts: 1728 },
+  { index: 27, name: 'Post-Singularity Immortal', chineseTitle: '奇點超脫真仙', epoch: '2030 Cosmic Singularity', baseLifespanYears: 2.5e18, baseQiCapacity: 1e29, tribulationLightningBolts: 1944 },
+  { index: 28, name: '2030 Horizon Overlord', chineseTitle: '二〇三〇天際霸主', epoch: '2030 Cosmic Singularity', baseLifespanYears: 1e19, baseQiCapacity: 1e30, tribulationLightningBolts: 2030 },
+  { index: 29, name: 'Eternal Dao Architect', chineseTitle: '永恆大道締造者', epoch: '2030 Cosmic Singularity', baseLifespanYears: 9.99e19, baseQiCapacity: 1e31, tribulationLightningBolts: 3000 },
 ] as const;
 
 export interface PathProgress {
   path: CultivationPath;
-  realmIndex: number; // 0 .. 22
+  realmIndex: number; // 0 .. 29
   layer: number; // 1 .. 9
   currentEssence: number;
   requiredEssence: number;
@@ -113,12 +131,12 @@ export function calculateDetailedSuppression(
 }
 
 /**
- * Calculates required essence for a given realm (0..22) and layer (1..9)
+ * Calculates required essence for a given realm (0..29) and layer (1..9)
  */
 export function getRequiredEssenceForLayer(realmIndex: number, layer: number): number {
-  const clampedRealm = Math.max(0, Math.min(22, realmIndex));
+  const clampedRealm = Math.max(0, Math.min(MAX_REALM_INDEX, realmIndex));
   const clampedLayer = Math.max(1, Math.min(9, layer));
-  const realmDef = CULTIVATION_REALMS[clampedRealm];
+  const realmDef = CULTIVATION_REALMS[clampedRealm] || CULTIVATION_REALMS[0];
   return Math.round(realmDef.baseQiCapacity * (1 + (clampedLayer - 1) * 0.35));
 }
 
@@ -227,7 +245,6 @@ export function calculateLineageCultivationBuff(lineage: MasterDiscipleLineage):
 
   if (lineage.masterName && lineage.proximityDistanceMeters <= 120) {
     const distanceFactor = 1 - lineage.proximityDistanceMeters / 120;
-    // Scales from +40% (0.40) at edge of aura up to +120% (1.20) right beside Master
     proximityBonus = 0.4 + distanceFactor * 0.8;
   }
 
@@ -266,7 +283,7 @@ export function calculateBreakthroughOdds(
   if (state.karma.alignment === 'green_righteous') {
     baseChance += 0.08;
   } else if (state.karma.alignment === 'red_blood_fiend') {
-    baseChance -= 0.14; // Heavenly Dao wrath against Blood-Fiends
+    baseChance -= 0.14;
   }
 
   const successProbability = Number(Math.max(0.1, Math.min(0.98, baseChance)).toFixed(2));
@@ -280,7 +297,9 @@ export function calculateBreakthroughOdds(
     successProbability,
     tribulationDamage,
     lightningBolts,
-    canBreakthrough: pathState.currentEssence >= pathState.requiredEssence && pathState.realmIndex < 22,
+    canBreakthrough:
+      pathState.currentEssence >= pathState.requiredEssence &&
+      pathState.realmIndex < MAX_REALM_INDEX,
   };
 }
 

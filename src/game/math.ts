@@ -1,10 +1,11 @@
-// Pure Mathematical Formulas: Trillion-Scale Power, Troop Counter Matrix,
+// Pure Mathematical Formulas (2030.1 Horizon Edition):
+// Trillion-to-Septillion Scale Power, Era 0-20 Dyson Citadels, Troop Counter Matrix,
 // Diminishing Returns Mitigation, Economic Sinks & Monte Carlo Combat Simulator
 
 import { ArmyComposition, TroopArchetype, TROOP_TIERS, MAX_TOTAL_TROOPS, MAX_RALLY_COHORT } from './troopTraining';
 import { calculateRealmSuppression } from './cultivationMath';
 
-export type HeroRarity = 'mortal' | 'earth' | 'heaven' | 'immortal' | 'chaos_mythic';
+export type HeroRarity = 'mortal' | 'earth' | 'heaven' | 'immortal' | 'chaos_mythic' | 'singularity_2030';
 
 export const HERO_RARITY_MULTIPLIERS: Record<HeroRarity, number> = {
   mortal: 1.0,
@@ -12,17 +13,20 @@ export const HERO_RARITY_MULTIPLIERS: Record<HeroRarity, number> = {
   heaven: 2.0,
   immortal: 3.5,
   chaos_mythic: 6.0,
+  singularity_2030: 12.0,
 };
 
 /**
- * Castle Era Multiplier (Levels 0..100 mapped across 10 Eras, scaling 1x to 100x)
+ * Castle Era Multiplier (Levels 0..200 mapped across 20 Eras).
+ * Preserves exact 1.0x at Lv.0 and 100.0x at Lv.100, and scales up to 1,000.0x at Lv.200 (Era 20 Dyson Citadel).
  */
 export function getCastleEraMultiplier(castleLevel: number): {
-  eraIndex: number; // 0 .. 10
+  eraIndex: number; // 0 .. 20
   eraName: string;
-  powerMultiplier: number; // 1.0 .. 100.0
+  powerMultiplier: number; // 1.0 .. 1000.0
+  eraMultiplier: number; // 1.0 .. 1000.0
 } {
-  const clampedLevel = Math.max(0, Math.min(100, Math.floor(castleLevel)));
+  const clampedLevel = Math.max(0, Math.min(200, Math.floor(castleLevel)));
   const eraIndex = Math.floor(clampedLevel / 10);
   const eraNames = [
     'Mortal Outpost',
@@ -36,33 +40,48 @@ export function getCastleEraMultiplier(castleLevel: number): {
     'Daluo Celestial Court',
     'Chaos Sovereign Dominion',
     'Ultimate Origin Imperial Spire',
+    'Chrono-Dimensional Bastion',
+    'Quantum Astral Starfort',
+    'Nebula Void Sanctum',
+    'Causality Matrix Citadel',
+    'Hyper-Dimensional Monolith',
+    'Galactic Meridian Ring',
+    'Dyson Sphere Sovereign Core',
+    'Singularity Horizon Spire',
+    '2030 Omni-Realm Nexus',
+    'Eternal Dao Architect Throne',
   ];
 
-  // Smooth exponential-linear curve from 1x at Lv.0 to exactly 100x at Lv.100
-  const powerMultiplier =
-    clampedLevel === 0
-      ? 1.0
-      : clampedLevel === 100
-      ? 100.0
-      : Number((1 + (clampedLevel / 100) * 99).toFixed(2));
+  let powerMultiplier = 1.0;
+  if (clampedLevel === 0) {
+    powerMultiplier = 1.0;
+  } else if (clampedLevel <= 100) {
+    powerMultiplier =
+      clampedLevel === 100 ? 100.0 : Number((1 + (clampedLevel / 100) * 99).toFixed(2));
+  } else {
+    // Levels 101..200 scale from 100x up to 1,000x
+    const progressAbove100 = (clampedLevel - 100) / 100;
+    powerMultiplier = Number((100 + progressAbove100 * 900).toFixed(2));
+  }
 
   return {
     eraIndex,
-    eraName: eraNames[eraIndex] || eraNames[0],
+    eraName: eraNames[eraIndex] || eraNames[eraNames.length - 1],
     powerMultiplier,
+    eraMultiplier: powerMultiplier,
   };
 }
 
 /**
- * Multiplicative Trillion-Scale Army Power Rating
+ * Multiplicative Trillion-to-Septillion Scale Army Power Rating
  * Balances armies up to 1,000 Trillion troops and 1 Trillion rally cohorts.
  */
 export function calculateTrillionScaleArmyPower(params: {
   army: ArmyComposition;
-  castleLevel: number; // 0..100
+  castleLevel: number; // 0..200
   heroRarity: HeroRarity;
-  researchLevel: number; // 0..100
-  commanderRealmIndex: number; // 0..22
+  researchLevel: number; // 0..200
+  commanderRealmIndex: number; // 0..29
 }): {
   totalTroops: number;
   cappedTotalTroops: number;
@@ -81,7 +100,7 @@ export function calculateTrillionScaleArmyPower(params: {
   const tierDef = TROOP_TIERS[Math.max(0, Math.min(9, params.army.tier - 1))];
   const eraInfo = getCastleEraMultiplier(params.castleLevel);
   const heroMult = HERO_RARITY_MULTIPLIERS[params.heroRarity] || 1.0;
-  const researchMult = 1 + Math.max(0, Math.min(100, params.researchLevel)) * 0.04;
+  const researchMult = 1 + Math.max(0, Math.min(200, params.researchLevel)) * 0.04;
   const realmBonus = 1 + Math.max(0, params.commanderRealmIndex) * 0.25;
 
   const rawPower =
@@ -103,11 +122,12 @@ export function calculateTrillionScaleArmyPower(params: {
 }
 
 /**
- * Formats large numbers into K / M / B / T / Qa (Quadrillion)
+ * Formats large numbers into K / M / B / T / Qa (Quadrillion) / Sp (Septillion)
  */
 export function formatLargeNumber(value: number): string {
   if (!Number.isFinite(value)) return '∞';
   const abs = Math.abs(value);
+  if (abs >= 1e24) return `${(value / 1e24).toFixed(2)} Sp`;
   if (abs >= 1e15) return `${(value / 1e15).toFixed(2)} Qa`;
   if (abs >= 1e12) return `${(value / 1e12).toFixed(2)} T`;
   if (abs >= 1e9) return `${(value / 1e9).toFixed(2)} B`;
@@ -199,7 +219,7 @@ export function evaluateEconomyInflationSink(params: {
 }
 
 export interface MonteCarloSimulationConfig {
-  iterations: number; // e.g., 500 or 1000
+  iterations: number;
   attackerArmy: ArmyComposition;
   defenderArmy: ArmyComposition;
   attackerRealmIndex: number;
@@ -255,7 +275,6 @@ export function runMonteCarloCombatSimulation(
   const attTierPower = TROOP_TIERS[Math.max(0, Math.min(9, config.attackerArmy.tier - 1))].basePowerPerUnit;
   const defTierPower = TROOP_TIERS[Math.max(0, Math.min(9, config.defenderArmy.tier - 1))].basePowerPerUnit;
 
-  // Compute weighted counter advantage between army ratios
   const attTotalInit =
     Math.max(1, config.attackerArmy.shieldbearers + config.attackerArmy.shooters + config.attackerArmy.bombers);
   const defTotalInit =
@@ -288,7 +307,6 @@ export function runMonteCarloCombatSimulation(
   let sumAttSurv = 0;
   let sumDefSurv = 0;
 
-  // Clamp extreme suppression in tactical troop exchange while preserving exact realm dominance
   const effectiveAttRealmScale = Math.min(1000, Math.max(0.001, realmSuppression));
 
   for (let i = 0; i < iterations; i++) {
@@ -299,7 +317,7 @@ export function runMonteCarloCombatSimulation(
 
     for (let round = 0; round < 8; round++) {
       if (attHP <= 0 || defHP <= 0) break;
-      const attRoll = 0.85 + rng() * 0.35; // tactical variance + critical strikes
+      const attRoll = 0.85 + rng() * 0.35;
       const defRoll = 0.85 + rng() * 0.35;
 
       const attDamage =

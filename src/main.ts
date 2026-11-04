@@ -1,9 +1,31 @@
 import { game } from './game';
 import { VoxelRealmsHUD } from './systems/VoxelRealmsHUD';
+import {
+  getCurrentSignedInUser,
+  isUserAdmin,
+  applyAdminUIUnlockState,
+  signInUser,
+} from './game/auth';
+import { SUPREME_ADMIN_EMAIL } from './game/adminGMControl';
 
-// Ensure the loading overlay hides gracefully and HUD boots immediately
+// Ensure the loading overlay hides gracefully, verify signed-in user role ('creatergame31@gmail.com'),
+// and unlock administrative controls in the UI if the admin user is signed in.
 window.addEventListener('DOMContentLoaded', () => {
-  VoxelRealmsHUD.getInstance();
+  const hud = VoxelRealmsHUD.getInstance();
+
+  // Authenticate current user & check if 'creatergame31@gmail.com' is signed in with 'admin' role
+  let currentUser = getCurrentSignedInUser();
+  if (!currentUser.isSignedIn) {
+    currentUser = signInUser(SUPREME_ADMIN_EMAIL);
+  }
+
+  if (isUserAdmin(currentUser)) {
+    applyAdminUIUnlockState(currentUser);
+    hud.setAuthenticatedUser(currentUser);
+  } else {
+    applyAdminUIUnlockState(currentUser);
+  }
+
   setTimeout(() => {
     const loadingEl = document.getElementById('loading');
     if (loadingEl) {

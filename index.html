@@ -1,11 +1,48 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme-2030="cyber_celestial_2030">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ShadowRealm — Voxel Realms Xianxia MMORPG</title>
-    <meta name="description" content="ShadowRealm Voxel Realms RPG: Four-Path Immortal Cultivation, BSP+WFC Procedural Dungeons, 50v50 Castle Siege Delta-Sync, and C++20 Guardrail Architecture.">
+    <title>ShadowRealm 2030.1 — Voxel Realms Xianxia MMORPG</title>
+    <meta name="description" content="ShadowRealm 2030.1 Voxel Realms RPG: 30 Immortal Realms, BSP+WFC Procedural Dao Grottoes, 50v50 Castle Siege Delta-Sync, Post-Quantum Vault, and C++20 Guardrail Architecture.">
     <style>
+        :root,
+        [data-theme-2030="cyber_celestial_2030"] {
+            --sr-bg-void: #06080f;
+            --sr-panel-bg: rgba(12, 17, 29, 0.86);
+            --sr-modal-bg: rgba(11, 15, 26, 0.96);
+            --sr-border-primary: rgba(245, 158, 11, 0.36);
+            --sr-accent-gold: #fbbf24;
+            --sr-accent-cyan: #38bdf8;
+            --sr-accent-jade: #10b981;
+            --sr-text-main: #f8fafc;
+            --sr-text-muted: #94a3b8;
+        }
+
+        [data-theme-2030="classic_xianxia_jade"] {
+            --sr-bg-void: #06100e;
+            --sr-panel-bg: rgba(9, 24, 21, 0.88);
+            --sr-modal-bg: rgba(8, 20, 18, 0.96);
+            --sr-border-primary: rgba(16, 185, 129, 0.42);
+            --sr-accent-gold: #34d399;
+            --sr-accent-cyan: #2dd4bf;
+            --sr-accent-jade: #fbbf24;
+            --sr-text-main: #ecfdf5;
+            --sr-text-muted: #a7f3d0;
+        }
+
+        [data-theme-2030="tactical_high_contrast"] {
+            --sr-bg-void: #020408;
+            --sr-panel-bg: rgba(5, 8, 15, 0.94);
+            --sr-modal-bg: rgba(4, 6, 12, 0.98);
+            --sr-border-primary: rgba(56, 189, 248, 0.65);
+            --sr-accent-gold: #fde047;
+            --sr-accent-cyan: #00f0ff;
+            --sr-accent-jade: #4ade80;
+            --sr-text-main: #ffffff;
+            --sr-text-muted: #cbd5e1;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -15,10 +52,10 @@
         html, body {
             width: 100%;
             height: 100%;
-            background-color: #080a10;
+            background-color: var(--sr-bg-void);
             font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             overflow: hidden;
-            color: #f8fafc;
+            color: var(--sr-text-main);
         }
 
         #game {
@@ -39,7 +76,7 @@
             height: 100vh;
             z-index: 10;
             display: none;
-            background: #080a10;
+            background: var(--sr-bg-void);
             cursor: grab;
         }
 
@@ -53,13 +90,13 @@
             left: 50%;
             transform: translateX(-50%);
             z-index: 110;
-            background: rgba(14, 19, 31, 0.88);
+            background: var(--sr-panel-bg);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(245, 158, 11, 0.45);
+            border: 1px solid var(--sr-border-primary);
             border-radius: 6px;
             padding: 6px 16px;
             font-size: 12px;
-            color: #f8fafc;
+            color: var(--sr-text-main);
             display: none;
             flex-direction: column;
             align-items: center;
@@ -81,14 +118,14 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: #080a10;
+            background-color: var(--sr-bg-void);
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             z-index: 1000;
             font-size: 20px;
-            color: #fbbf24;
+            color: var(--sr-accent-gold);
             letter-spacing: 0.08em;
             text-transform: uppercase;
         }
@@ -123,15 +160,15 @@
             position: fixed;
             top: 16px;
             left: 16px;
-            color: #f8fafc;
+            color: var(--sr-text-main);
             font-size: 12px;
             z-index: 100;
-            background: rgba(14, 19, 31, 0.84);
+            background: var(--sr-panel-bg);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(212, 175, 55, 0.28);
+            border: 1px solid var(--sr-border-primary);
             border-radius: 8px;
             padding: 10px 12px;
-            width: 268px;
+            width: 282px;
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65);
             pointer-events: auto;
         }
@@ -147,7 +184,7 @@
 
         .stat-bar {
             width: 100%;
-            height: 10px;
+            height: 9px;
             background-color: #1e293b;
             border: 1px solid rgba(148, 163, 184, 0.25);
             margin-top: 3px;
@@ -172,15 +209,17 @@
             background: linear-gradient(90deg, #059669, #10b981);
         }
 
-        .viewport-switcher-row {
+        .viewport-switcher-row,
+        .theme-switcher-row {
             display: flex;
             gap: 4px;
-            margin-top: 8px;
+            margin-top: 7px;
             padding-top: 6px;
             border-top: 1px solid rgba(148, 163, 184, 0.16);
         }
 
-        .viewport-btn {
+        .viewport-btn,
+        .theme-btn {
             flex: 1;
             background: #0f172a;
             border: 1px solid rgba(148, 163, 184, 0.25);
@@ -193,15 +232,22 @@
             transition: all 0.15s ease;
         }
 
-        .viewport-btn:hover {
-            border-color: #06b6d4;
+        .viewport-btn:hover,
+        .theme-btn:hover {
+            border-color: var(--sr-accent-cyan);
             color: #ffffff;
         }
 
         .viewport-btn.active {
             background: rgba(6, 182, 212, 0.22);
-            border-color: #06b6d4;
-            color: #38bdf8;
+            border-color: var(--sr-accent-cyan);
+            color: var(--sr-accent-cyan);
+        }
+
+        .theme-btn.active {
+            background: rgba(245, 158, 11, 0.22);
+            border-color: var(--sr-accent-gold);
+            color: var(--sr-accent-gold);
         }
 
         .hud-top-right {
@@ -220,9 +266,9 @@
 
         .minimap-container {
             width: 232px;
-            background: rgba(14, 19, 31, 0.88);
+            background: var(--sr-panel-bg);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(212, 175, 55, 0.35);
+            border: 1px solid var(--sr-border-primary);
             border-radius: 6px;
             padding: 6px;
             box-shadow: 0 4px 16px rgba(0, 0, 0, 0.65);
@@ -237,7 +283,7 @@
             margin-bottom: 5px;
             font-size: 11px;
             font-weight: bold;
-            color: #fbbf24;
+            color: var(--sr-accent-gold);
             letter-spacing: 0.5px;
             text-transform: uppercase;
         }
@@ -266,7 +312,7 @@
         .minimap-objective {
             margin-top: 5px;
             font-size: 11px;
-            color: #38bdf8;
+            color: var(--sr-accent-cyan);
             text-align: left;
             white-space: nowrap;
             overflow: hidden;
@@ -339,7 +385,7 @@
             display: none;
             align-items: center;
             width: 232px;
-            background: rgba(14, 19, 31, 0.94);
+            background: var(--sr-panel-bg);
             border: 1px solid #06b6d4;
             border-radius: 5px;
             padding: 5px 8px;
@@ -353,32 +399,33 @@
 
         .telemetry-row {
             display: flex;
-            gap: 10px;
+            gap: 6px;
             align-items: center;
-            background: rgba(14, 19, 31, 0.82);
+            background: var(--sr-panel-bg);
             border: 1px solid rgba(148, 163, 184, 0.22);
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 11px;
             font-variant-numeric: tabular-nums;
+            color: #cbd5e1;
         }
 
         .hud-bottom-right {
             position: fixed;
             bottom: 84px;
             right: 16px;
-            color: #f8fafc;
+            color: var(--sr-text-main);
             font-size: 11px;
             text-align: right;
             z-index: 100;
-            background: rgba(14, 19, 31, 0.8);
+            background: var(--sr-panel-bg);
             border: 1px solid rgba(148, 163, 184, 0.22);
             padding: 5px 9px;
             border-radius: 4px;
             font-variant-numeric: tabular-nums;
         }
 
-        /* Bottom 5-Pillar Command Dock */
+        /* Bottom 5-Pillar Command Dock (Collapsible Zen/Cinema Dock) */
         .xianxia-command-dock {
             position: fixed;
             bottom: 16px;
@@ -386,14 +433,26 @@
             transform: translateX(-50%);
             z-index: 115;
             display: flex;
+            align-items: center;
             gap: 6px;
-            background: rgba(14, 19, 31, 0.9);
+            background: var(--sr-panel-bg);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(212, 175, 55, 0.35);
+            border: 1px solid var(--sr-border-primary);
             border-radius: 8px;
             padding: 6px 8px;
             box-shadow: 0 8px 28px rgba(0, 0, 0, 0.75);
             pointer-events: auto;
+            transition: transform 0.22s ease, opacity 0.22s ease;
+        }
+
+        .xianxia-command-dock.dock-collapsed .dock-buttons-group {
+            display: none;
+        }
+
+        .dock-buttons-group {
+            display: flex;
+            gap: 6px;
+            align-items: center;
         }
 
         .dock-tab-btn {
@@ -410,16 +469,28 @@
         }
 
         .dock-tab-btn:hover {
-            border-color: #f59e0b;
-            color: #fbbf24;
+            border-color: var(--sr-accent-gold);
+            color: var(--sr-accent-gold);
             background: rgba(245, 158, 11, 0.12);
         }
 
         .dock-tab-btn.active {
             background: rgba(245, 158, 11, 0.22);
-            border-color: #f59e0b;
-            color: #fbbf24;
+            border-color: var(--sr-accent-gold);
+            color: var(--sr-accent-gold);
             box-shadow: 0 0 12px rgba(245, 158, 11, 0.25);
+        }
+
+        .dock-collapse-btn {
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid rgba(6, 182, 212, 0.35);
+            color: var(--sr-accent-cyan);
+            font-size: 10px;
+            font-weight: 700;
+            padding: 7px 8px;
+            border-radius: 5px;
+            cursor: pointer;
+            white-space: nowrap;
         }
 
         /* Ability buttons */
@@ -522,10 +593,10 @@
         }
 
         .xianxia-modal-window {
-            width: min(960px, 95vw);
-            max-height: 82vh;
-            background: rgba(14, 19, 31, 0.96);
-            border: 1px solid rgba(212, 175, 55, 0.45);
+            width: min(980px, 95vw);
+            max-height: 84vh;
+            background: var(--sr-modal-bg);
+            border: 1px solid var(--sr-border-primary);
             border-radius: 10px;
             box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85);
             display: flex;
@@ -544,7 +615,7 @@
 
         .xianxia-modal-header h3 {
             font-size: 15px;
-            color: #fbbf24;
+            color: var(--sr-accent-gold);
             letter-spacing: 0.04em;
         }
 
@@ -584,7 +655,7 @@
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.06em;
-            color: #94a3b8;
+            color: var(--sr-text-muted);
             margin-bottom: 8px;
         }
 
@@ -680,7 +751,7 @@
 <body>
     <div id="loading">
         <div class="spinner"></div>
-        <p>Initializing ShadowRealm & Voxel Realms...</p>
+        <p>Initializing ShadowRealm 2030.1 Horizon...</p>
     </div>
 
     <div id="game"></div>
@@ -688,40 +759,40 @@
     <div id="viewport-mode-banner"></div>
 
     <div class="hud">
-        <!-- Top-Left Immortal Cultivator Plaque & Viewport Switcher -->
+        <!-- Top-Left Immortal Cultivator Plaque, Viewport Switcher & 2030 Theme Switcher -->
         <div class="hud-top-left">
-            <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.45);border-radius:4px;padding:3px 7px;margin-bottom:6px;cursor:pointer;" data-command-tab="gm_admin" title="Click to open Supreme GM / Admin / Moderator & Contact Console">
-                <span style="font-size:10px;font-weight:700;color:#fbbf24;">👑 GM / ADMIN / MOD</span>
-                <span style="font-size:10px;color:#38bdf8;font-weight:600;">creatergame31@gmail.com</span>
+            <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.45);border-radius:4px;padding:3px 7px;margin-bottom:6px;cursor:pointer;" data-command-tab="gm_admin" title="Click to open Supreme GM / Admin / Moderator & 2030 Console">
+                <span style="font-size:10px;font-weight:700;color:var(--sr-accent-gold);">👑 GM / ADMIN 2030</span>
+                <span id="hud-admin-auth-badge" style="font-size:10px;color:#10b981;font-weight:600;">🔓 ADMIN UNLOCKED (creatergame31@gmail.com)</span>
             </div>
             <div class="cultivator-plaque-header">
-                <strong id="hud-cultivator-realm" style="color:#fbbf24;font-size:12px;">Golden Core (金丹) • Layer 1</strong>
+                <strong id="hud-cultivator-realm" style="color:var(--sr-accent-gold);font-size:12px;">Golden Core (金丹) • Layer 1</strong>
                 <span id="hud-cultivator-karma" style="font-size:11px;font-weight:bold;color:#10b981;">🟢 Righteous (+320)</span>
             </div>
-            <div id="hud-four-path-summary" style="font-size:10px;color:#38bdf8;margin-bottom:5px;font-variant-numeric:tabular-nums;">
-                Qi R2 • Body R2 • Soul R2 • Mind R2 (2.0x)
+            <div id="hud-four-path-summary" style="font-size:10px;color:var(--sr-accent-cyan);margin-bottom:5px;font-variant-numeric:tabular-nums;">
+                Qi R2 · Body R2 · Soul R2 · Mind R2 (2.0x)
             </div>
             <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px;font-variant-numeric:tabular-nums;">
-                <span id="hud-army-power" style="color:#f8fafc;font-weight:600;">⚔️ Power: 1.50 Qa</span>
-                <span id="hud-spirit-stones" style="color:#fbbf24;">💎 125.0 K Stones</span>
+                <span id="hud-army-power" style="color:var(--sr-text-main);font-weight:600;">⚔️ Power: 1.50 Qa</span>
+                <span id="hud-spirit-stones" style="color:var(--sr-accent-gold);">💎 125.0 K Stones</span>
             </div>
 
             <div class="health-bar">
                 <div style="display:flex;justify-content:space-between;font-size:10px;color:#cbd5e1;">
                     <span>Vitality / HP</span>
-                    <span id="level-display" style="color:#fbbf24;font-weight:bold;">Level 1</span>
+                    <span id="level-display" style="color:var(--sr-accent-gold);font-weight:bold;">Level 1</span>
                 </div>
                 <div class="stat-bar">
                     <div class="stat-bar-fill" id="health-fill" style="width: 100%"></div>
                 </div>
             </div>
-            <div class="mana-bar" style="margin-top: 5px;">
+            <div class="mana-bar" style="margin-top: 4px;">
                 <div style="font-size:10px;color:#cbd5e1;">Spirit Qi / Mana</div>
                 <div class="stat-bar">
                     <div class="stat-bar-fill" id="mana-fill" style="width: 100%"></div>
                 </div>
             </div>
-            <div class="exp-bar" style="margin-top: 5px;">
+            <div class="exp-bar" style="margin-top: 4px;">
                 <div style="font-size:10px;color:#cbd5e1;">Meridian EXP</div>
                 <div class="stat-bar">
                     <div class="stat-bar-fill" id="exp-fill" style="width: 0%"></div>
@@ -730,8 +801,14 @@
 
             <div class="viewport-switcher-row" title="Switch between 2D Tactical Realm, 3D Voxel Citadel, and 3D Procedural Dungeon Delve (Hotkey: V)">
                 <button class="viewport-btn active" data-viewport-mode="2d_tactical">🗺️ 2D Tactical</button>
-                <button class="viewport-btn" data-viewport-mode="3d_voxel_citadel">🏯 3D Voxel Citadel</button>
+                <button class="viewport-btn" data-viewport-mode="3d_voxel_citadel">🏯 3D Voxel</button>
                 <button class="viewport-btn" data-viewport-mode="3d_dungeon_delve">🌀 3D Delve</button>
+            </div>
+
+            <div class="theme-switcher-row" title="Tri-Mode 2030 Visual Theme Switcher">
+                <button class="theme-btn active" data-theme-mode="cyber_celestial_2030">✨ 2030 Gold</button>
+                <button class="theme-btn" data-theme-mode="classic_xianxia_jade">🐉 Xianxia Jade</button>
+                <button class="theme-btn" data-theme-mode="tactical_high_contrast">⚡ Hi-Contrast</button>
             </div>
         </div>
 
@@ -739,7 +816,7 @@
         <div class="hud-top-right">
             <div class="minimap-container" title="Click map to broadcast Party Ping • Shift+Click: Attack • Alt+Click: Danger • Right-click: Clear">
                 <div class="minimap-header">
-                    <span>Shadow Radar • Party Ping</span>
+                    <span>Shadow Radar · Party Ping</span>
                     <button id="minimap-zoom-btn" class="minimap-zoom-btn" title="Toggle Zoom (M)">1x</button>
                 </div>
                 <div class="ping-toolbar">
@@ -760,8 +837,10 @@
             </div>
             <div id="ping-alert-banner" class="ping-alert-banner"></div>
             <div class="telemetry-row">
-                <span id="server-status" style="color: #10b981;">● Connected</span>
+                <span id="server-status" style="color: #10b981;">Connected</span>
+                <span>·</span>
                 <span id="fps-counter">FPS: 60</span>
+                <span>·</span>
                 <span id="player-count">Party: 1</span>
             </div>
         </div>
@@ -772,21 +851,24 @@
         </div>
     </div>
 
-    <!-- Bottom 5-Pillar + Supreme GM/Admin Command Dock -->
-    <div class="xianxia-command-dock">
-        <button class="dock-tab-btn" data-command-tab="cultivation">☯️ Cultivation & 10<sup>ΔR</sup></button>
-        <button class="dock-tab-btn" data-command-tab="dungeon">🌀 BSP+WFC Dungeons</button>
-        <button class="dock-tab-btn" data-command-tab="siege">🏯 50v50 Siege & GOAP AI</button>
-        <button class="dock-tab-btn" data-command-tab="dialogue">📜 Dialogue & Factions</button>
-        <button class="dock-tab-btn" data-command-tab="vault">🛡️ SHA-256 Vault & Tests</button>
-        <button class="dock-tab-btn" data-command-tab="gm_admin" style="border-color:rgba(245,158,11,0.55);color:#fbbf24;">👑 GM / Admin & Contact</button>
+    <!-- Bottom 5-Pillar + Supreme GM/Admin Command Dock (Collapsible via [H]) -->
+    <div id="xianxia-command-dock" class="xianxia-command-dock">
+        <div class="dock-buttons-group">
+            <button class="dock-tab-btn" data-command-tab="cultivation">☯️ 30 Realms & 10<sup>ΔR</sup></button>
+            <button class="dock-tab-btn" data-command-tab="dungeon">🌀 BSP+WFC Dungeons</button>
+            <button class="dock-tab-btn" data-command-tab="siege">🏯 50v50 Siege & GOAP</button>
+            <button class="dock-tab-btn" data-command-tab="dialogue">📜 Dialogue & Sects</button>
+            <button class="dock-tab-btn" data-command-tab="vault">🛡️ PQ Vault & Tests</button>
+            <button class="dock-tab-btn" data-command-tab="gm_admin" style="border-color:rgba(245,158,11,0.55);color:var(--sr-accent-gold);">👑 GM / Admin 2030</button>
+        </div>
+        <button id="btn-toggle-zen-dock" class="dock-collapse-btn" title="Collapse/Expand Command Dock for Zen 3D/2D Viewing (Hotkey: H)">[H] Zen</button>
     </div>
 
     <!-- Modal Overlay for 5-Pillar Systems -->
     <div id="xianxia-modal-backdrop">
         <div class="xianxia-modal-window">
             <div class="xianxia-modal-header">
-                <h3 id="xianxia-modal-title">ShadowRealm Architectural Pillar</h3>
+                <h3 id="xianxia-modal-title">ShadowRealm 2030.1 Architectural Pillar</h3>
                 <button class="xianxia-modal-close" onclick="document.getElementById('xianxia-modal-backdrop').style.display='none';">✕ Close [Esc]</button>
             </div>
             <div id="xianxia-modal-body"></div>

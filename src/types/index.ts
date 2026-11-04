@@ -119,7 +119,11 @@ export interface NetworkMessage {
     | 'party_ping'
     | 'siege_delta'
     | 'save_sync'
-    | 'gm_broadcast';
+    | 'gm_broadcast'
+    | 'gm_command'
+    | 'kick_player'
+    | 'ban_player'
+    | 'server_telemetry';
   playerId: string;
   data: any;
   timestamp: number;

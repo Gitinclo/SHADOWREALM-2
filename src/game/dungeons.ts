@@ -1,4 +1,4 @@
-// Pure Procedural Dungeon Delve Engine: Binary Space Partitioning (BSP) +
+// Pure Procedural Dungeon Delve Engine: 3D Binary Space Partitioning (BSP) for Dao Grottoes +
 // Wave Function Collapse (WFC) Constraint Solver + A* Solvability Verification
 
 export type DungeonTheme = 'dao_grotto' | 'secret_realm' | 'tribulation_chamber';
@@ -31,6 +31,7 @@ export interface DungeonRoom {
   zElevation: number;
   width: number;
   height: number;
+  depth3D: number;
   centerX: number;
   centerY: number;
   monsterBracket: number; // 1 .. 5
@@ -50,6 +51,47 @@ export interface DungeonEncounter {
   defeated: boolean;
 }
 
+/**
+ * 3D BSP Node representing a partitioned volume in a procedural 3D Dao Grotto
+ */
+export interface BSPPartitionNode {
+  id: string;
+  depthLevel: number;
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+  h: number;
+  d: number;
+  splitAxis?: 'x' | 'y' | 'z';
+  left?: BSPPartitionNode;
+  right?: BSPPartitionNode;
+  room?: {
+    x: number;
+    y: number;
+    z: number;
+    w: number;
+    h: number;
+    d: number;
+  };
+}
+
+/**
+ * 3D Voxel representation of a carved Dao Grotto chamber/corridor block
+ */
+export interface VoxelGrotto3DBlock {
+  x: number;
+  y: number;
+  z: number;
+  voxelType:
+    | 'obsidian_wall'
+    | 'jade_floor'
+    | 'spirit_stalactite'
+    | 'qi_crystal_vein'
+    | 'corridor_arch'
+    | 'altar_core';
+}
+
 export interface GeneratedDungeon {
   seed: number;
   theme: DungeonTheme;
@@ -58,6 +100,7 @@ export interface GeneratedDungeon {
   recommendedRealmIndex: number;
   width: number;
   height: number;
+  depth3D: number;
   tiles: DungeonTileType[][];
   rooms: DungeonRoom[];
   encounters: DungeonEncounter[];
@@ -66,22 +109,15 @@ export interface GeneratedDungeon {
   astarPathToBoss: Array<{ x: number; y: number }>;
   isSolvable: boolean;
   wfcCollapsedCells: number;
-}
-
-interface BSPNode {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  left?: BSPNode;
-  right?: BSPNode;
-  room?: { x: number; y: number; w: number; h: number };
+  bspRoot: BSPPartitionNode;
+  bspLeafCount: number;
+  voxelBlocks3D: VoxelGrotto3DBlock[];
 }
 
 /**
  * Deterministic PRNG (Mulberry32)
  */
-function createRNG(seed: number): () => number {
+export function createDungeonRNG(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
     state = (state + 0x6d2b79f5) | 0;
@@ -116,6 +152,162 @@ const WFC_ADJACENCY: Record<DungeonTileType, DungeonTileType[]> = {
 };
 
 /**
+ * Recursively partitions a 3D Dao Grotto bounding volume using Binary Space Partitioning (BSP).
+ * Guarantees non-overlapping spatial sub-volumes with vertical Z-tier elevation progression.
+ */
+export function buildBSP3DDaoGrottoTree(params: {
+  width: number;
+  height: number;
+  depth3D?: number;
+  maxDepth?: number;
+  seed: number;
+}): { root: BSPPartitionNode; leaves: BSPPartitionNode[] } {
+  const rng = createDungeonRNG(params.seed);
+  const maxDepth = params.maxDepth ?? 3;
+  const depth3D = Math.max(6, params.depth3D ?? 12);
+
+  const root: BSPPartitionNode = {
+    id: 'bsp_root',
+    depthLevel: 0,
+    x: 1,
+    y: 1,
+    z: 0,
+    w: params.width - 2,
+    h: params.height - 2,
+    d: depth3D,
+  };
+
+  const leaves: BSPPartitionNode[] = [];
+  let nodeCounter = 0;
+
+  function splitNode(node: BSPPartitionNode, remainingDepth: number) {
+    if (remainingDepth <= 0 || (node.w < 14 && node.h < 14)) {
+      leaves.push(node);
+      return;
+    }
+
+    const splitHorizontally =
+      node.w < node.h ? true : node.h < node.w ? false : rng() > 0.5;
+
+    if (splitHorizontally && node.h >= 14) {
+      const splitH = Math.floor(node.h * (0.4 + rng() * 0.2));
+      const zStep = Number((node.z + 0.5).toFixed(2));
+      node.splitAxis = 'y';
+      node.left = {
+        id: `bsp_${++nodeCounter}`,
+        depthLevel: node.depthLevel + 1,
+        x: node.x,
+        y: node.y,
+        z: node.z,
+        w: node.w,
+        h: splitH,
+        d: node.d,
+      };
+      node.right = {
+        id: `bsp_${++nodeCounter}`,
+        depthLevel: node.depthLevel + 1,
+        x: node.x,
+        y: node.y + splitH,
+        z: zStep,
+        w: node.w,
+        h: node.h - splitH,
+        d: node.d,
+      };
+      splitNode(node.left, remainingDepth - 1);
+      splitNode(node.right, remainingDepth - 1);
+    } else if (!splitHorizontally && node.w >= 14) {
+      const splitW = Math.floor(node.w * (0.4 + rng() * 0.2));
+      const zStep = Number((node.z + 0.5).toFixed(2));
+      node.splitAxis = 'x';
+      node.left = {
+        id: `bsp_${++nodeCounter}`,
+        depthLevel: node.depthLevel + 1,
+        x: node.x,
+        y: node.y,
+        z: node.z,
+        w: splitW,
+        h: node.h,
+        d: node.d,
+      };
+      node.right = {
+        id: `bsp_${++nodeCounter}`,
+        depthLevel: node.depthLevel + 1,
+        x: node.x + splitW,
+        y: node.y,
+        z: zStep,
+        w: node.w - splitW,
+        h: node.h,
+        d: node.d,
+      };
+      splitNode(node.left, remainingDepth - 1);
+      splitNode(node.right, remainingDepth - 1);
+    } else {
+      leaves.push(node);
+    }
+  }
+
+  splitNode(root, maxDepth);
+  return { root, leaves };
+}
+
+/**
+ * Generates 3D Dao Grotto voxel blocks (floors, obsidian walls, stalactites, spirit crystal veins, and boss altar core)
+ * from a generated BSP+WFC dungeon layout.
+ */
+export function generate3DDaoGrottoVoxels(
+  tiles: DungeonTileType[][],
+  rooms: DungeonRoom[]
+): VoxelGrotto3DBlock[] {
+  const blocks: VoxelGrotto3DBlock[] = [];
+  const height = tiles.length;
+  const width = tiles[0]?.length || 0;
+
+  // Map room elevation lookup
+  const getElevationAt = (x: number, y: number): number => {
+    for (const r of rooms) {
+      if (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height) {
+        return Math.round(r.zElevation);
+      }
+    }
+    return 0;
+  };
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const t = tiles[y][x];
+      if (t === 'void_wall') continue;
+
+      const zBase = getElevationAt(x, y);
+      blocks.push({
+        x,
+        y,
+        z: zBase,
+        voxelType:
+          t === 'corridor_tile'
+            ? 'corridor_arch'
+            : t === 'boss_altar'
+            ? 'altar_core'
+            : t === 'spirit_array' || t === 'treasure_chest'
+            ? 'qi_crystal_vein'
+            : 'jade_floor',
+      });
+
+      // Add overhead grotto stalactites on spirit array / boss chambers for 3D depth
+      if (t === 'spirit_array' || t === 'boss_altar') {
+        blocks.push({
+          x,
+          y,
+          z: zBase + 4,
+          voxelType: 'spirit_stalactite',
+        });
+      }
+    }
+  }
+
+  return blocks;
+}
+
+/**
  * Generates a 3D-layered Procedural Dungeon using BSP macro room hierarchy +
  * WFC interior pattern synthesis + A* entrance-to-boss verification.
  */
@@ -125,11 +317,13 @@ export function generateProceduralDungeon(params: {
   floorLevel?: number;
   width?: number;
   height?: number;
+  depth3D?: number;
 }): GeneratedDungeon {
   const width = Math.max(28, Math.min(64, params.width ?? 40));
   const height = Math.max(28, Math.min(64, params.height ?? 32));
+  const depth3D = Math.max(6, Math.min(24, params.depth3D ?? 12));
   const floorLevel = Math.max(1, Math.min(100, params.floorLevel ?? 1));
-  const rng = createRNG(params.seed);
+  const rng = createDungeonRNG(params.seed);
 
   const themeMeta: Record<DungeonTheme, { title: string; minRealm: number }> = {
     dao_grotto: { title: 'Ancient Dao Grotto (古道洞天)', minRealm: 1 },
@@ -142,44 +336,15 @@ export function generateProceduralDungeon(params: {
     Array.from({ length: width }, () => 'void_wall' as DungeonTileType)
   );
 
-  // 1. Macro Binary Space Partitioning (BSP)
-  const root: BSPNode = { x: 1, y: 1, w: width - 2, h: height - 2 };
-  const leafNodes: BSPNode[] = [];
+  // 1. Macro 3D Binary Space Partitioning (BSP)
+  const { root: bspRoot, leaves: leafNodes } = buildBSP3DDaoGrottoTree({
+    width,
+    height,
+    depth3D,
+    maxDepth: 3,
+    seed: params.seed,
+  });
 
-  function splitBSP(node: BSPNode, depth: number) {
-    if (depth <= 0 || (node.w < 14 && node.h < 14)) {
-      leafNodes.push(node);
-      return;
-    }
-    const splitHorizontally = node.w < node.h ? true : node.h < node.w ? false : rng() > 0.5;
-    if (splitHorizontally && node.h >= 14) {
-      const splitH = Math.floor(node.h * (0.4 + rng() * 0.2));
-      node.left = { x: node.x, y: node.y, w: node.w, h: splitH };
-      node.right = { x: node.x, y: node.y + splitH, w: node.w, h: node.h - splitH };
-      splitBSP(node.left, depth - 1);
-      splitBSP(node.right, depth - 1);
-    } else if (!splitHorizontally && node.w >= 14) {
-      const splitW = Math.floor(node.w * (0.4 + rng() * 0.2));
-      node.left = { x: node.x, y: node.y, w: splitW, h: node.h };
-      node.right = { x: node.x + splitW, y: node.y, w: node.w - splitW, h: node.h };
-      splitBSP(node.left, depth - 1);
-      splitBSP(node.right, depth - 1);
-    } else {
-      leafNodes.push(node);
-    }
-  }
-
-  splitBSP(root, 3);
-
-  // Carve rooms inside each BSP leaf
-  const rolesOrder: DungeonRoomRole[] = [
-    'entry_shrine',
-    'guardian_barracks',
-    'spirit_vein_chamber',
-    'inner_demon_altar' as any,
-    'treasure_vault',
-    'boss_sanctum',
-  ];
   const roleNames: Record<DungeonRoomRole, string> = {
     entry_shrine: 'Ascension Entry Shrine',
     spirit_vein_chamber: 'Dragon Spirit Vein Pool',
@@ -194,12 +359,15 @@ export function generateProceduralDungeon(params: {
   leafNodes.forEach((leaf, idx) => {
     const rw = Math.max(5, Math.min(leaf.w - 2, Math.floor(leaf.w * (0.65 + rng() * 0.2))));
     const rh = Math.max(5, Math.min(leaf.h - 2, Math.floor(leaf.h * (0.65 + rng() * 0.2))));
+    const rd = Math.max(4, Math.floor(depth3D * (0.5 + rng() * 0.4)));
     const rx = leaf.x + Math.max(1, Math.floor((leaf.w - rw) / 2));
     const ry = leaf.y + Math.max(1, Math.floor((leaf.h - rh) / 2));
-    leaf.room = { x: rx, y: ry, w: rw, h: rh };
-
     const isFirst = idx === 0;
     const isLast = idx === leafNodes.length - 1;
+    const zElevation = isLast ? 2.5 : Number((idx * 0.5).toFixed(2));
+
+    leaf.room = { x: rx, y: ry, z: zElevation, w: rw, h: rh, d: rd };
+
     let role: DungeonRoomRole = 'guardian_barracks';
     if (isFirst) role = 'entry_shrine';
     else if (isLast) role = 'boss_sanctum';
@@ -222,9 +390,10 @@ export function generateProceduralDungeon(params: {
       name: roleNames[role],
       x: rx,
       y: ry,
-      zElevation: isLast ? 2.5 : idx * 0.5,
+      zElevation,
       width: rw,
       height: rh,
+      depth3D: rd,
       centerX: Math.floor(rx + rw / 2),
       centerY: Math.floor(ry + rh / 2),
       monsterBracket: bracket,
@@ -337,6 +506,9 @@ export function generateProceduralDungeon(params: {
   // 4. Verify solvability via A* Pathfinding from Entrance to Boss Altar
   const astarPathToBoss = findDungeonPathAStar(tiles, entrance, bossAltar);
 
+  // 5. Generate 3D Dao Grotto Voxel Blocks
+  const voxelBlocks3D = generate3DDaoGrottoVoxels(tiles, rooms);
+
   return {
     seed: params.seed,
     theme: params.theme,
@@ -345,6 +517,7 @@ export function generateProceduralDungeon(params: {
     recommendedRealmIndex: themeMeta[params.theme].minRealm,
     width,
     height,
+    depth3D,
     tiles,
     rooms,
     encounters,
@@ -353,6 +526,9 @@ export function generateProceduralDungeon(params: {
     astarPathToBoss,
     isSolvable: astarPathToBoss.length > 0,
     wfcCollapsedCells,
+    bspRoot,
+    bspLeafCount: leafNodes.length,
+    voxelBlocks3D,
   };
 }
 

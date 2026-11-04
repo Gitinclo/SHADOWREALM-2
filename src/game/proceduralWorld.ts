@@ -1,10 +1,12 @@
 // Procedural Voxel Terrain, 2D Simplex + Hydraulic Erosion River Routing,
-// Poisson-Disk Resource Spawner & Interactive 3D Three.js Voxel/Dungeon Viewport
+// Poisson-Disk Resource Spawner & Next-Gen 2030 Three.js Studio PBR Viewport
 
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { WeatherType } from './weather';
 import { GeneratedDungeon } from './dungeons';
 import { synthesizePBRCanvasTexture } from './graphicsEngine';
+import { VisualTheme2030 } from './savePersistence';
 
 export interface PoissonResourceNode {
   id: string;
@@ -12,7 +14,7 @@ export interface PoissonResourceNode {
   x: number;
   z: number;
   elevation: number;
-  tier: number; // 1 .. 10
+  tier: number; // 1 .. 20
   richnessMultiplier: number;
 }
 
@@ -60,9 +62,9 @@ export function generateErodedVoxelTerrain(params: {
   citadelEra?: number;
 }): ErodedTerrainMap {
   const gridSize = params.gridSize ?? 40;
-  const seed = params.seed ?? 2026;
+  const seed = params.seed ?? 2030;
   const weather = params.weather ?? 'clear_sky';
-  const citadelEra = params.citadelEra ?? 5;
+  const citadelEra = params.citadelEra ?? 10;
 
   const heights: number[][] = Array.from({ length: gridSize }, () =>
     Array.from({ length: gridSize }, () => 0)
@@ -170,8 +172,14 @@ export function samplePoissonDiskResources(params: {
   let candidateIdx = 0;
   for (let attempt = 0; attempt < 220 && nodes.length < 28; attempt++) {
     candidateIdx++;
-    const cx = Math.floor(smoothNoise2D(attempt * 1.3, params.seed, params.seed + 11) * (params.gridSize - 4)) + 2;
-    const cz = Math.floor(smoothNoise2D(params.seed, attempt * 1.7, params.seed + 29) * (params.gridSize - 4)) + 2;
+    const cx =
+      Math.floor(
+        smoothNoise2D(attempt * 1.3, params.seed, params.seed + 11) * (params.gridSize - 4)
+      ) + 2;
+    const cz =
+      Math.floor(
+        smoothNoise2D(params.seed, attempt * 1.7, params.seed + 29) * (params.gridSize - 4)
+      ) + 2;
 
     // Exclude river cells and central citadel footprint
     if (params.riverMask[cz]?.[cx]) continue;
@@ -194,7 +202,7 @@ export function samplePoissonDiskResources(params: {
       x: cx,
       z: cz,
       elevation: params.heights[cz]?.[cx] ?? 1.5,
-      tier: Math.max(1, Math.min(10, params.citadelEra + (candidateIdx % 3))),
+      tier: Math.max(1, Math.min(20, params.citadelEra + (candidateIdx % 3))),
       richnessMultiplier: weatherRichness,
     });
   }
@@ -203,21 +211,22 @@ export function samplePoissonDiskResources(params: {
 }
 
 // ============================================================================
-// Interactive 3D Three.js Voxel Realms & Procedural Dungeon Delve Viewport
+// Interactive 3D Three.js 2030 Studio PBR Voxel Realms & Dungeon Delve Viewport
 // ============================================================================
 
 export class VoxelRealms3DViewport {
   private container: HTMLElement;
   private renderer: THREE.WebGLRenderer | null = null;
+  private pmremGenerator: THREE.PMREMGenerator | null = null;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private rootGroup: THREE.Group;
   private astrolabeRings: THREE.Mesh[] = [];
   private fireflyParticles: THREE.Points | null = null;
   private waterMesh: THREE.Mesh | null = null;
-  private playerBeacon: THREE.Group | null = null;
   private animFrameId: number | null = null;
   private isVisible: boolean = false;
+  private isSoftwareGl: boolean = false;
   private mode: 'voxel_citadel' | 'dungeon_delve' = 'voxel_citadel';
 
   // Camera spherical orbit state
@@ -233,12 +242,12 @@ export class VoxelRealms3DViewport {
   constructor(container: HTMLElement) {
     this.container = container;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x080a10);
-    this.scene.fog = new THREE.FogExp2(0x080a10, 0.014);
+    this.scene.background = new THREE.Color(0x06080f);
+    this.scene.fog = new THREE.FogExp2(0x06080f, 0.013);
 
     const w = Math.max(320, container.clientWidth || window.innerWidth);
     const h = Math.max(240, container.clientHeight || window.innerHeight);
-    this.camera = new THREE.PerspectiveCamera(50, w / h, 0.5, 300);
+    this.camera = new THREE.PerspectiveCamera(50, w / h, 0.5, 320);
     this.rootGroup = new THREE.Group();
     this.scene.add(this.rootGroup);
 
@@ -248,26 +257,52 @@ export class VoxelRealms3DViewport {
   }
 
   private initLights() {
-    // Three-Point Studio & Xianxia Atmospheric Lighting
-    const ambientFill = new THREE.HemisphereLight(0x38bdf8, 0x090d16, 0.75);
+    // Three-Point 2030 Studio & Xianxia Atmospheric Lighting
+    const ambientFill = new THREE.HemisphereLight(0x38bdf8, 0x090d16, 0.82);
     this.scene.add(ambientFill);
 
-    const keyLight = new THREE.DirectionalLight(0xffdfa8, 1.45);
-    keyLight.position.set(28, 45, 24);
+    const keyLight = new THREE.DirectionalLight(0xffe4b5, 1.55);
+    keyLight.position.set(28, 46, 24);
     this.scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight(0x06b6d4, 0.85);
-    rimLight.position.set(-30, 22, -26);
+    const rimLight = new THREE.DirectionalLight(0x06b6d4, 0.95);
+    rimLight.position.set(-30, 24, -26);
     this.scene.add(rimLight);
   }
 
   private initRenderer(width: number, height: number) {
     try {
-      this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      this.renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: 'high-performance',
+      });
+
+      // Detect software WebGL rasterizers (SwiftShader / llvmpipe) to adapt quality safely
+      const gl = this.renderer.getContext();
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const rendererStr = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
+      this.isSoftwareGl = /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(
+        String(rendererStr)
+      );
+
       this.renderer.setSize(width, height);
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      this.renderer.setPixelRatio(
+        this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2)
+      );
+      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.1;
+      this.renderer.toneMappingExposure = 1.15;
+
+      // Setup PMREM RoomEnvironment for physical metal & jade specular reflections
+      try {
+        this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+        this.scene.environment = this.pmremGenerator.fromScene(
+          new RoomEnvironment(),
+          0.04
+        ).texture;
+      } catch {
+        // Fallback if RoomEnvironment fails on restricted context
+      }
 
       const canvas = this.renderer.domElement;
       canvas.style.width = '100%';
@@ -289,6 +324,17 @@ export class VoxelRealms3DViewport {
       this.container.innerHTML =
         '<div style="color:#f8fafc;padding:24px;">3D WebGL Preview Standby</div>';
     }
+  }
+
+  public applyThemeColors(theme: VisualTheme2030) {
+    const bgHex =
+      theme === 'tactical_high_contrast'
+        ? 0x030508
+        : theme === 'classic_xianxia_jade'
+        ? 0x07100e
+        : 0x06080f;
+    this.scene.background = new THREE.Color(bgHex);
+    this.scene.fog = new THREE.FogExp2(bgHex, 0.013);
   }
 
   private bindInteractionEvents() {
@@ -315,7 +361,10 @@ export class VoxelRealms3DViewport {
       (e) => {
         if (!this.isVisible) return;
         e.preventDefault();
-        this.targetOrbitDistance = Math.max(16, Math.min(72, this.targetOrbitDistance + e.deltaY * 0.03));
+        this.targetOrbitDistance = Math.max(
+          16,
+          Math.min(78, this.targetOrbitDistance + e.deltaY * 0.03)
+        );
       },
       { passive: false }
     );
@@ -334,7 +383,6 @@ export class VoxelRealms3DViewport {
     this.astrolabeRings = [];
     this.fireflyParticles = null;
     this.waterMesh = null;
-    this.playerBeacon = null;
 
     while (this.rootGroup.children.length > 0) {
       const child = this.rootGroup.children.pop()!;
@@ -343,8 +391,8 @@ export class VoxelRealms3DViewport {
   }
 
   /**
-   * Builds the 40x40 Chunked Voxel Terrain, Eroded River Basin, Scaling Citadel (Eras 0-10)
-   * with Rotating Astrolabe Rings, and Poisson-Disk Resource Nodes.
+   * Builds the Chunked Voxel Terrain, Eroded River Basin, Scaling Citadel (Eras 0–20)
+   * with Rotating 2030 Dyson/Astrolabe Rings, and Poisson-Disk Resource Nodes.
    */
   public renderVoxelCitadelWorld(params: {
     citadelLevel: number;
@@ -354,11 +402,13 @@ export class VoxelRealms3DViewport {
     this.mode = 'voxel_citadel';
     this.clearRootGroup();
 
+    const era = Math.max(1, Math.min(20, Math.floor(params.citadelLevel / 10) + 1));
+
     const terrain = generateErodedVoxelTerrain({
       gridSize: 32,
-      seed: params.seed ?? 2026,
+      seed: params.seed ?? 2030,
       weather: params.weather,
-      citadelEra: Math.floor(params.citadelLevel / 10),
+      citadelEra: era,
     });
 
     const half = terrain.gridSize / 2;
@@ -371,19 +421,19 @@ export class VoxelRealms3DViewport {
     const matMeadow = new THREE.MeshStandardMaterial({
       color: 0x1e4d38,
       map: grassTex || undefined,
-      roughness: 0.78,
-      metalness: 0.08,
+      roughness: 0.76,
+      metalness: 0.1,
     });
     const matMoss = new THREE.MeshStandardMaterial({
       color: 0x166534,
-      roughness: 0.65,
-      metalness: 0.1,
+      roughness: 0.62,
+      metalness: 0.12,
     });
     const matRock = new THREE.MeshStandardMaterial({
       color: 0x475569,
       map: stoneTex || undefined,
-      roughness: 0.55,
-      metalness: 0.25,
+      roughness: 0.5,
+      metalness: 0.3,
     });
 
     // Build terrain voxels
@@ -406,76 +456,80 @@ export class VoxelRealms3DViewport {
       }
     }
 
-    // Gerstner Wave River Plane
+    // Physical Specular Water River Plane
     const waterGeo = new THREE.PlaneGeometry(terrain.gridSize, terrain.gridSize, 24, 24);
     waterGeo.rotateX(-Math.PI / 2);
     const waterMat = new THREE.MeshPhysicalMaterial({
       color: 0x0284c7,
-      transmission: 0.4,
-      opacity: 0.82,
+      transmission: this.isSoftwareGl ? 0.15 : 0.45,
+      opacity: 0.85,
       transparent: true,
-      roughness: 0.18,
-      metalness: 0.1,
+      roughness: 0.14,
+      metalness: 0.15,
+      clearcoat: 0.8,
     });
     this.waterMesh = new THREE.Mesh(waterGeo, waterMat);
     this.waterMesh.position.y = 0.75;
     this.rootGroup.add(this.waterMesh);
 
-    // Scaling Immortal Citadel at Center (Eras 0..10)
-    const era = Math.max(1, Math.min(10, Math.floor(params.citadelLevel / 10) + 1));
-    const citadelMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
+    // Scaling Immortal Citadel at Center (Eras 1..20)
+    const isSingularityEra = era > 10;
+    const citadelMat = new THREE.MeshPhysicalMaterial({
+      color: isSingularityEra ? 0x0f172a : 0x1e293b,
       map: stoneTex || undefined,
-      roughness: 0.4,
-      metalness: 0.45,
+      roughness: 0.32,
+      metalness: 0.55,
+      clearcoat: 0.5,
     });
-    const roofMat = new THREE.MeshStandardMaterial({
-      color: 0xf59e0b,
+    const roofMat = new THREE.MeshPhysicalMaterial({
+      color: isSingularityEra ? 0x38bdf8 : 0xf59e0b,
+      emissive: isSingularityEra ? 0x0284c7 : 0xb45309,
+      emissiveIntensity: isSingularityEra ? 0.35 : 0.18,
       map: roofTex || undefined,
-      roughness: 0.28,
-      metalness: 0.75,
+      roughness: 0.22,
+      metalness: 0.82,
+      clearcoat: 0.9,
     });
 
-    for (let tier = 0; tier < Math.min(5, Math.ceil(era / 2) + 1); tier++) {
-      const tierW = Math.max(1.8, 7.5 - tier * 1.35);
-      const tierH = 1.4 + tier * 0.35;
-      const baseY = 2.6 + tier * 1.5;
+    const tierCount = Math.min(7, Math.ceil(era / 3) + 2);
+    for (let tier = 0; tier < tierCount; tier++) {
+      const tierW = Math.max(1.6, 7.8 - tier * 1.05);
+      const tierH = 1.35 + tier * 0.32;
+      const baseY = 2.6 + tier * 1.45;
 
       const body = new THREE.Mesh(new THREE.BoxGeometry(tierW, tierH, tierW), citadelMat);
       body.position.set(0, baseY + tierH / 2, 0);
       this.rootGroup.add(body);
 
-      const eaves = new THREE.Mesh(
-        new THREE.ConeGeometry(tierW * 0.82, 0.9, 4),
-        roofMat
-      );
+      const eaves = new THREE.Mesh(new THREE.ConeGeometry(tierW * 0.84, 0.92, 4), roofMat);
       eaves.rotation.y = Math.PI / 4;
-      eaves.position.set(0, baseY + tierH + 0.4, 0);
+      eaves.position.set(0, baseY + tierH + 0.42, 0);
       this.rootGroup.add(eaves);
     }
 
-    // Golden Celestial Astrolabe Rings orbiting the Citadel peak
-    const ringCount = Math.min(4, Math.max(1, Math.floor(era / 2)));
-    const ringMat = new THREE.MeshStandardMaterial({
-      color: 0xfbbf24,
-      emissive: 0xd97706,
-      emissiveIntensity: 0.55,
-      metalness: 0.9,
-      roughness: 0.15,
+    // Golden & Cyan 2030 Celestial Astrolabe / Dyson Rings orbiting the Citadel peak
+    const ringCount = Math.min(6, Math.max(2, Math.floor(era / 3) + 1));
+    const ringMat = new THREE.MeshPhysicalMaterial({
+      color: isSingularityEra ? 0x38bdf8 : 0xfbbf24,
+      emissive: isSingularityEra ? 0x06b6d4 : 0xd97706,
+      emissiveIntensity: 0.65,
+      metalness: 0.95,
+      roughness: 0.12,
+      clearcoat: 1.0,
     });
 
     for (let r = 0; r < ringCount; r++) {
       const torus = new THREE.Mesh(
-        new THREE.TorusGeometry(2.6 + r * 1.15, 0.08, 12, 48),
+        new THREE.TorusGeometry(2.5 + r * 1.05, 0.08, 12, 56),
         ringMat
       );
-      torus.position.set(0, 7.5 + era * 0.4, 0);
+      torus.position.set(0, 7.8 + tierCount * 0.9, 0);
       torus.rotation.x = Math.PI / 3 + r * 0.35;
       this.astrolabeRings.push(torus);
       this.rootGroup.add(torus);
     }
 
-    // Render Poisson-Disk Resource Nodes
+    // Render Poisson-Disk Resource Nodes with Clearcoat Jade/Crystal PBR
     const nodeColors: Record<PoissonResourceNode['type'], number> = {
       spirit_vein: 0x06b6d4,
       ancient_herb: 0x10b981,
@@ -485,13 +539,14 @@ export class VoxelRealms3DViewport {
 
     for (const node of terrain.resourceNodes) {
       const crystal = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.42, 0),
-        new THREE.MeshStandardMaterial({
+        new THREE.OctahedronGeometry(0.44, 0),
+        new THREE.MeshPhysicalMaterial({
           color: nodeColors[node.type],
           emissive: nodeColors[node.type],
-          emissiveIntensity: 0.45,
-          roughness: 0.2,
-          metalness: 0.8,
+          emissiveIntensity: 0.5,
+          roughness: 0.15,
+          metalness: 0.85,
+          clearcoat: 0.9,
         })
       );
       crystal.position.set(node.x - half, node.elevation + 0.55, node.z - half);
@@ -516,26 +571,27 @@ export class VoxelRealms3DViewport {
     const floorMat = new THREE.MeshStandardMaterial({
       color: 0x1e293b,
       map: stoneTex || undefined,
-      roughness: 0.65,
-      metalness: 0.2,
+      roughness: 0.6,
+      metalness: 0.25,
     });
     const corridorMat = new THREE.MeshStandardMaterial({
       color: 0x0f172a,
-      roughness: 0.75,
-      metalness: 0.15,
+      roughness: 0.7,
+      metalness: 0.2,
     });
-    const arrayMat = new THREE.MeshStandardMaterial({
+    const arrayMat = new THREE.MeshPhysicalMaterial({
       color: 0x06b6d4,
       emissive: 0x0891b2,
-      emissiveIntensity: 0.6,
-      roughness: 0.25,
-      metalness: 0.8,
+      emissiveIntensity: 0.65,
+      roughness: 0.2,
+      metalness: 0.85,
+      clearcoat: 0.85,
     });
     const wallMat = new THREE.MeshStandardMaterial({
       color: 0x090d16,
       map: armorTex || undefined,
-      roughness: 0.85,
-      metalness: 0.3,
+      roughness: 0.8,
+      metalness: 0.35,
     });
 
     const tileGeo = new THREE.BoxGeometry(0.95, 0.4, 0.95);
@@ -548,7 +604,6 @@ export class VoxelRealms3DViewport {
         const wz = y - halfH;
 
         if (t === 'void_wall') {
-          // Only extrude perimeter walls adjacent to walkable tiles to keep scene crisp
           const hasWalkableNeighbor =
             (y > 0 && dungeon.tiles[y - 1][x] !== 'void_wall') ||
             (y < dungeon.height - 1 && dungeon.tiles[y + 1][x] !== 'void_wall') ||
@@ -576,12 +631,13 @@ export class VoxelRealms3DViewport {
         if (t === 'treasure_chest') {
           const chest = new THREE.Mesh(
             new THREE.BoxGeometry(0.55, 0.45, 0.4),
-            new THREE.MeshStandardMaterial({
+            new THREE.MeshPhysicalMaterial({
               color: 0xf59e0b,
               emissive: 0xb45309,
-              emissiveIntensity: 0.4,
-              metalness: 0.85,
-              roughness: 0.2,
+              emissiveIntensity: 0.45,
+              metalness: 0.9,
+              roughness: 0.15,
+              clearcoat: 0.9,
             })
           );
           chest.position.set(wx, 0.45, wz);
@@ -594,7 +650,7 @@ export class VoxelRealms3DViewport {
     const pathMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.7,
     });
     for (const step of dungeon.astarPathToBoss) {
       const marker = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), pathMat);
@@ -605,10 +661,11 @@ export class VoxelRealms3DViewport {
     // Entrance Shrine Portal Beacon (Jade Cyan)
     const entrancePortal = new THREE.Mesh(
       new THREE.TorusGeometry(0.9, 0.12, 12, 32),
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshPhysicalMaterial({
         color: 0x10b981,
         emissive: 0x10b981,
         emissiveIntensity: 0.85,
+        clearcoat: 1.0,
       })
     );
     entrancePortal.position.set(
@@ -622,12 +679,13 @@ export class VoxelRealms3DViewport {
     // Boss Altar Beacon (Crimson-Gold Tribulation Sovereign)
     const bossMonolith = new THREE.Mesh(
       new THREE.OctahedronGeometry(1.1, 0),
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshPhysicalMaterial({
         color: 0xef4444,
         emissive: 0xdc2626,
-        emissiveIntensity: 0.75,
-        metalness: 0.8,
-        roughness: 0.2,
+        emissiveIntensity: 0.8,
+        metalness: 0.85,
+        roughness: 0.15,
+        clearcoat: 1.0,
       })
     );
     bossMonolith.position.set(
@@ -642,11 +700,11 @@ export class VoxelRealms3DViewport {
   }
 
   private spawnAtmosphericParticles(weather: WeatherType) {
-    const count = 420;
+    const count = this.isSoftwareGl ? 220 : 440;
     const positions = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       positions[i * 3] = (Math.random() - 0.5) * 44;
-      positions[i * 3 + 1] = Math.random() * 16 + 0.5;
+      positions[i * 3 + 1] = Math.random() * 18 + 0.5;
       positions[i * 3 + 2] = (Math.random() - 0.5) * 44;
     }
     const geo = new THREE.BufferGeometry();
@@ -663,7 +721,7 @@ export class VoxelRealms3DViewport {
       color,
       size: 0.24,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.82,
     });
     this.fireflyParticles = new THREE.Points(geo, mat);
     this.rootGroup.add(this.fireflyParticles);
@@ -714,12 +772,12 @@ export class VoxelRealms3DViewport {
         Math.cos(this.orbitPitch) * Math.cos(this.orbitYaw) * this.orbitDistance;
 
       this.camera.position.set(cx, cy, cz);
-      this.camera.lookAt(0, 2.2, 0);
+      this.camera.lookAt(0, 2.5, 0);
 
       // Rotate astrolabe rings and dungeon portals
       this.astrolabeRings.forEach((ring, i) => {
-        ring.rotation.z = t * (0.45 + i * 0.2);
-        ring.rotation.y = t * (0.3 - i * 0.15);
+        ring.rotation.z = t * (0.45 + i * 0.18);
+        ring.rotation.y = t * (0.3 - i * 0.14);
       });
 
       // Gently animate firefly/qi particles

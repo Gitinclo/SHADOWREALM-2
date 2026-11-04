@@ -187,6 +187,18 @@ export class NetworkManager extends EventEmitter {
       case 'gm_broadcast':
         this.emit('gm_broadcast', message.data);
         break;
+      case 'gm_command':
+        this.emit('gm_command', message.data);
+        break;
+      case 'kick_player':
+        this.emit('kick_player', message.data);
+        break;
+      case 'ban_player':
+        this.emit('ban_player', message.data);
+        break;
+      case 'server_telemetry':
+        this.emit('server_telemetry', message.data);
+        break;
       default:
         console.warn('Unknown message type:', message.type);
     }

@@ -1,9 +1,10 @@
-// Unified Xianxia HUD Command Center & 5-Pillar Interactive Controller
-// Bridges the 2D Phaser Tactical Scene, 3D Three.js Voxel/Delve Viewport,
-// Decoupled Pure TypeScript Gameplay Modules, and 3-Tier SHA-256 Persistence.
+// Unified Xianxia HUD Command Center & 5-Pillar Interactive Controller (2030.1 Future-Proof Edition)
+// Bridges the 2D Phaser Tactical Scene, 3D Three.js Studio PBR Viewport,
+// Decoupled Pure TypeScript Gameplay Modules, and Post-Quantum + SHA-256 Persistence.
 
 import {
   CULTIVATION_REALMS,
+  MAX_REALM_INDEX,
   CultivationPath,
   calculateRealmSuppression,
   calculateFourPathResonance,
@@ -51,30 +52,75 @@ import {
 import {
   PersistentRealmSaveData,
   SignedSaveEnvelope,
+  SaveStateSnapshot,
+  VisualTheme2030,
+  ServerShardId,
   loadFromLocalVault,
   saveToLocalVault,
   serializeSaveEnvelope,
   verifySaveEnvelopeChecksum,
+  createSaveSnapshot,
 } from '../game/savePersistence';
 import { WEATHER_CATALOG, WeatherType } from '../game/weather';
 import { getVIPBenefitProfile, getCyclicalLoginMultiplier } from '../game/vipSubscription';
 import { evaluateFactionStanding } from '../game/clanMath';
 import { VoxelRealms3DViewport } from '../game/proceduralWorld';
 import { runAllArchitecturalGuardrailTests } from '../game/dungeons.test';
+import React from 'react';
+import { createRoot, Root } from 'react-dom/client';
 import {
   SUPREME_ADMIN_EMAIL,
   GMSessionState,
+  GMConsoleCommandPayload,
+  ServerTelemetryPoint,
   getSupremeAdminContactProfile,
   createAdminGMSession,
   verifyGMSessionIntegrity,
   appendGMAuditLog,
+  executeGMConsoleCommand,
+  executeGMBatchScript,
+  parseGMConsoleInput,
 } from '../game/adminGMControl';
+import {
+  AuthenticatedUser,
+  getCurrentSignedInUser,
+  isUserAdmin,
+  applyAdminUIUnlockState,
+} from '../game/auth';
+import { GMServerTelemetryChart } from '../components/GMServerTelemetryChart';
 
 export interface VoxelHUDCallbacks {
-  onTriggerWorldPing?: (x: number, y: number, type: 'move' | 'attack' | 'defend' | 'danger', label?: string) => void;
-  onBroadcastNetworkMessage?: (type: 'siege_delta' | 'save_sync' | 'gm_broadcast', data: any) => void;
+  onTriggerWorldPing?: (
+    x: number,
+    y: number,
+    type: 'move' | 'attack' | 'defend' | 'danger',
+    label?: string
+  ) => void;
+  onBroadcastNetworkMessage?: (
+    type:
+      | 'siege_delta'
+      | 'save_sync'
+      | 'gm_broadcast'
+      | 'gm_command'
+      | 'kick_player'
+      | 'ban_player',
+    data: any
+  ) => void;
   onGMAction?: (action: {
-    type: 'godmode' | 'teleport' | 'smite_enemies' | 'heal_full' | 'time_scale';
+    type:
+      | 'godmode'
+      | 'teleport'
+      | 'teleport_all_players'
+      | 'spawn_item'
+      | 'spawn_multiple_items'
+      | 'set_cultivation_realm'
+      | 'kick_player'
+      | 'ban_player'
+      | 'migrate_shard'
+      | 'rollback_snapshot'
+      | 'smite_enemies'
+      | 'heal_full'
+      | 'time_scale';
     value?: any;
   }) => void;
 }
@@ -93,6 +139,7 @@ export class VoxelRealmsHUD {
 
   private state: PersistentRealmSaveData;
   private lastSaveEnvelope: SignedSaveEnvelope;
+  private saveSnapshots: SaveStateSnapshot[] = [];
   private currentDungeon: GeneratedDungeon;
   private currentDialogueNodeId: string = 'elder_greeting';
   private activeQuests: RadiantQuest[] = [];
@@ -102,9 +149,33 @@ export class VoxelRealmsHUD {
   private activeModalTab: string | null = null;
   private viewport3D: VoxelRealms3DViewport | null = null;
   private viewportMode: '2d_tactical' | '3d_voxel_citadel' | '3d_dungeon_delve' = '2d_tactical';
+  private isDockCollapsed: boolean = false;
   private callbacks: VoxelHUDCallbacks;
+  private currentUser: AuthenticatedUser;
   private gmSession: GMSessionState;
   private copyStatusText: string = '';
+  private rechartsRoot: Root | null = null;
+  private rechartsMountNode: HTMLElement | null = null;
+  private telemetryHistory: ServerTelemetryPoint[] = [];
+  private wsConnectedState: boolean = true;
+
+  // Interactive GM Command Console inputs state
+  private consoleTargetUserId: string = 'rogue_fiend_07';
+  private consoleModReason: string = 'Unauthorized speedhack & packet injection';
+  private consoleItemName: string = '2030 Chrono-Singularity Blade';
+  private consoleBulkQuantity: number = 50;
+  private consoleTeleportX: number = 1280;
+  private consoleTeleportY: number = 720;
+  private consoleTargetRealmIndex: number = 29;
+  private consoleTargetShard: ServerShardId = 'Shard-Alpha-2030';
+  private consoleDecreeIntervalSec: number = 180;
+  private consoleCliRaw: string = 'spawn_multiple_items Nine_Turn_Golden_Pill 50';
+  private consoleBatchScriptText: string = [
+    'spawn_multiple_items Singularity_Dao_Crystal 100',
+    'teleport_all_players 640 360',
+    'set_cultivation_realm 29 9',
+    'migrate_shard Shard-Alpha-2030 ALL',
+  ].join('\n');
 
   // Interactive calculator & simulator UI state
   private calcAttackerRealm: number = 2; // Golden Core
@@ -113,10 +184,14 @@ export class VoxelRealmsHUD {
 
   constructor(callbacks: VoxelHUDCallbacks = {}) {
     this.callbacks = callbacks;
-    this.gmSession = createAdminGMSession(SUPREME_ADMIN_EMAIL);
+    this.currentUser = getCurrentSignedInUser();
+    this.gmSession = createAdminGMSession(this.currentUser.email);
     const loaded = loadFromLocalVault();
     this.state = loaded.data;
     this.lastSaveEnvelope = loaded.envelope;
+    this.saveSnapshots = [createSaveSnapshot(this.state, 'Initial 2030.1 Boot Checkpoint')];
+
+    this.seedInitialTelemetryHistory();
 
     this.currentDungeon = generateProceduralDungeon({
       seed: this.state.lastDungeonSeed || 888888,
@@ -125,7 +200,11 @@ export class VoxelRealmsHUD {
     });
 
     this.siegeBaseline = createInitialSiegeSnapshot(Math.floor(this.state.castleLevel / 10));
-    this.siegeCurrent = stepSiegeSimulationTick(this.siegeBaseline, 0.05, this.state.activeFormation);
+    this.siegeCurrent = stepSiegeSimulationTick(
+      this.siegeBaseline,
+      0.05,
+      this.state.activeFormation
+    );
     this.lastSiegeDelta = encodeSiegeDeltaPacket(this.siegeBaseline, this.siegeCurrent);
 
     this.activeQuests = [
@@ -134,7 +213,109 @@ export class VoxelRealmsHUD {
     ];
 
     this.mountDOM();
+    this.applyVisualTheme2030(this.state.visualTheme2030 || 'cyber_celestial_2030');
+    applyAdminUIUnlockState(this.currentUser);
     this.refreshTopPlaque();
+  }
+
+  private seedInitialTelemetryHistory() {
+    const now = Date.now();
+    this.telemetryHistory = Array.from({ length: 10 }, (_, idx) => {
+      const t = now - (9 - idx) * 2000;
+      const load = Number((22 + Math.sin(idx * 0.9) * 6 + idx * 0.8).toFixed(1));
+      const pred = Number(Math.min(99, load * 1.12 + Math.cos(idx * 0.7) * 3.1).toFixed(1));
+      return {
+        timestamp: t,
+        timeLabel: new Date(t).toISOString().slice(11, 19),
+        serverLoadPercent: load,
+        predictedLoad2030Percent: pred,
+        anomalyScore: Number(Math.max(2, Math.abs(pred - load) * 2.2).toFixed(1)),
+        autoScaleShardCount: 3,
+        activeShardId: this.gmSession.activeShardId,
+        activeUsers: 5 + (idx % 2),
+        tickRateHz: 20,
+        memoryUsageMb: 146 + (idx % 4),
+        wsThroughputKbps: Number((48 + idx * 3.2).toFixed(1)),
+      };
+    });
+  }
+
+  public applyVisualTheme2030(theme: VisualTheme2030) {
+    this.state.visualTheme2030 = theme;
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme-2030', theme);
+      document.querySelectorAll<HTMLButtonElement>('[data-theme-mode]').forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-theme-mode') === theme);
+      });
+    }
+    this.viewport3D?.applyThemeColors(theme);
+  }
+
+  public toggleZenDock() {
+    this.isDockCollapsed = !this.isDockCollapsed;
+    const dockEl = document.getElementById('xianxia-command-dock');
+    const toggleBtn = document.getElementById('btn-toggle-zen-dock');
+    if (dockEl) {
+      dockEl.classList.toggle('dock-collapsed', this.isDockCollapsed);
+    }
+    if (toggleBtn) {
+      toggleBtn.textContent = this.isDockCollapsed ? '[H] Expand HUD Dock' : '[H] Zen';
+    }
+  }
+
+  public setAuthenticatedUser(user: AuthenticatedUser) {
+    this.currentUser = user;
+    this.gmSession = createAdminGMSession(user.email);
+    const unlocked = applyAdminUIUnlockState(user);
+    if (!unlocked && this.activeModalTab === 'gm_admin') {
+      this.closeModal();
+    } else if (this.activeModalTab === 'gm_admin') {
+      this.renderModalContent();
+    }
+  }
+
+  public getAuthenticatedUser(): AuthenticatedUser {
+    return this.currentUser;
+  }
+
+  public pushServerTelemetry(data: Partial<ServerTelemetryPoint> & { wsClients?: number }) {
+    const now = data.timestamp || Date.now();
+    const activePlayersCount =
+      this.gmSession.connectedPlayers.filter((p) => p.status === 'active').length + 1;
+    const loadPct = typeof data.serverLoadPercent === 'number' ? data.serverLoadPercent : 26.4;
+    const predLoad =
+      typeof data.predictedLoad2030Percent === 'number'
+        ? data.predictedLoad2030Percent
+        : Number(Math.min(99, loadPct * 1.12 + 2.4).toFixed(1));
+    const point: ServerTelemetryPoint = {
+      timestamp: now,
+      timeLabel: data.timeLabel || new Date(now).toISOString().slice(11, 19),
+      serverLoadPercent: loadPct,
+      predictedLoad2030Percent: predLoad,
+      anomalyScore:
+        typeof data.anomalyScore === 'number'
+          ? data.anomalyScore
+          : Number(Math.max(2, Math.abs(predLoad - loadPct) * 2.1).toFixed(1)),
+      autoScaleShardCount: data.autoScaleShardCount ?? (loadPct > 70 ? 5 : 3),
+      activeShardId: (data.activeShardId as ServerShardId) || this.gmSession.activeShardId,
+      activeUsers:
+        typeof data.activeUsers === 'number'
+          ? Math.max(
+              1,
+              data.activeUsers -
+                this.gmSession.kickedUserIds.length -
+                this.gmSession.bannedUserIds.length
+            )
+          : activePlayersCount,
+      tickRateHz: data.tickRateHz ?? 20,
+      memoryUsageMb: data.memoryUsageMb ?? 152,
+      wsThroughputKbps: data.wsThroughputKbps ?? 64.5,
+    };
+    this.wsConnectedState = true;
+    this.telemetryHistory = [...this.telemetryHistory.slice(-11), point];
+    if (this.activeModalTab === 'gm_admin') {
+      this.mountOrUpdateRechartsTelemetry();
+    }
   }
 
   public setCallbacks(callbacks: VoxelHUDCallbacks) {
@@ -167,6 +348,25 @@ export class VoxelRealmsHUD {
     }
   }
 
+  public captureStateSnapshot(label: string): SaveStateSnapshot {
+    const snap = createSaveSnapshot(this.state, label);
+    this.saveSnapshots = [snap, ...this.saveSnapshots].slice(0, 8);
+    return snap;
+  }
+
+  public rollbackToSnapshot(snapshotId?: string): boolean {
+    const target =
+      snapshotId && snapshotId !== 'latest'
+        ? this.saveSnapshots.find((s) => s.snapshotId === snapshotId)
+        : this.saveSnapshots[0];
+    if (!target) return false;
+    const verify = verifySaveEnvelopeChecksum(target.envelope);
+    if (!verify.valid) return false;
+    this.state = JSON.parse(JSON.stringify(target.envelope.payload));
+    this.persistState(true);
+    return true;
+  }
+
   private mountDOM() {
     const container3D = document.getElementById('voxel-3d-viewport');
     if (container3D) {
@@ -193,7 +393,23 @@ export class VoxelRealmsHUD {
       });
     });
 
-    // Global hotkeys 5, 6, 7, 8, 9 or Tab/V for quick access without interfering with Phaser Q/W/E/R
+    // Bind Tri-Mode 2030 Theme Switcher buttons
+    document.querySelectorAll<HTMLButtonElement>('[data-theme-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const theme = btn.getAttribute('data-theme-mode') as VisualTheme2030;
+        if (theme) {
+          this.applyVisualTheme2030(theme);
+          this.persistState(false);
+        }
+      });
+    });
+
+    // Bind Zen/Cinema Dock Collapse Toggle
+    document.getElementById('btn-toggle-zen-dock')?.addEventListener('click', () => {
+      this.toggleZenDock();
+    });
+
+    // Global hotkeys
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key === 'Escape' && this.activeModalTab) {
@@ -206,6 +422,8 @@ export class VoxelRealmsHUD {
             ? '3d_dungeon_delve'
             : '2d_tactical';
         this.setViewportMode(nextMode);
+      } else if (e.key === 'h' || e.key === 'H') {
+        this.toggleZenDock();
       }
     });
   }
@@ -223,22 +441,23 @@ export class VoxelRealmsHUD {
       this.viewport3D.setVisible(false);
       if (bannerEl) bannerEl.style.display = 'none';
     } else if (mode === '3d_voxel_citadel') {
+      const eraInfo = getCastleEraMultiplier(this.state.castleLevel);
       this.viewport3D.renderVoxelCitadelWorld({
         citadelLevel: this.state.castleLevel,
         weather: this.state.activeWeather,
-        seed: 2026,
+        seed: 2030,
       });
       this.viewport3D.setVisible(true);
       if (bannerEl) {
         bannerEl.style.display = 'flex';
-        bannerEl.innerHTML = `<span>🏯 <strong>3D Voxel Realms Overworld</strong> • Era ${Math.floor(this.state.castleLevel / 10)} Citadel • Weather: ${WEATHER_CATALOG[this.state.activeWeather].label}</span><span style="color:#94a3b8;font-size:11px;">Drag to Orbit • Scroll to Zoom • Press [V] to Switch</span>`;
+        bannerEl.innerHTML = `<span>🏯 <strong>3D Studio PBR Voxel Overworld</strong> · Era ${eraInfo.eraIndex} (${eraInfo.eraName}) · Weather: ${WEATHER_CATALOG[this.state.activeWeather].label}</span><span style="color:#94a3b8;font-size:11px;">Drag to Orbit · Scroll to Zoom · [V] Switch Viewport · [H] Zen Mode</span>`;
       }
     } else {
       this.viewport3D.renderProceduralDungeonDelve(this.currentDungeon);
       this.viewport3D.setVisible(true);
       if (bannerEl) {
         bannerEl.style.display = 'flex';
-        bannerEl.innerHTML = `<span>🌀 <strong>3D Procedural Delve: ${this.currentDungeon.themeTitle}</strong> • Seed #${this.currentDungeon.seed} • A* Path: ${this.currentDungeon.astarPathToBoss.length} steps</span><span style="color:#94a3b8;font-size:11px;">Drag to Orbit • Scroll to Zoom • Press [V] to Switch</span>`;
+        bannerEl.innerHTML = `<span>🌀 <strong>3D Procedural Delve: ${this.currentDungeon.themeTitle}</strong> · Seed #${this.currentDungeon.seed} · A* Path: ${this.currentDungeon.astarPathToBoss.length} steps</span><span style="color:#94a3b8;font-size:11px;">Drag to Orbit · Scroll to Zoom · [V] Switch Viewport · [H] Zen Mode</span>`;
       }
     }
   }
@@ -278,9 +497,9 @@ export class VoxelRealmsHUD {
     const powerInfo = calculateTrillionScaleArmyPower({
       army: this.state.army,
       castleLevel: this.state.castleLevel,
-      heroRarity: 'chaos_mythic',
+      heroRarity: resonance.dominantRealmIndex >= 23 ? 'singularity_2030' : 'chaos_mythic',
       researchLevel: 65,
-      commanderRealmIndex: resonance.dominantRealmIndex,
+      commanderRealmIndex: Math.min(22, resonance.dominantRealmIndex),
     });
 
     const realmBadgeEl = document.getElementById('hud-cultivator-realm');
@@ -315,7 +534,7 @@ export class VoxelRealmsHUD {
       stonesBadgeEl.textContent = `💎 ${formatLargeNumber(cult.spiritStones)} Stones`;
     }
     if (resonanceBadgeEl) {
-      resonanceBadgeEl.textContent = `Qi R${cult.paths.qi.realmIndex} • Body R${cult.paths.body.realmIndex} • Soul R${cult.paths.soul.realmIndex} • Mind R${cult.paths.mind.realmIndex} (${resonance.resonanceMultiplier}x)`;
+      resonanceBadgeEl.textContent = `Qi R${cult.paths.qi.realmIndex} · Body R${cult.paths.body.realmIndex} · Soul R${cult.paths.soul.realmIndex} · Mind R${cult.paths.mind.realmIndex} (${resonance.resonanceMultiplier}x)`;
     }
   }
 
@@ -326,32 +545,37 @@ export class VoxelRealmsHUD {
 
     switch (this.activeModalTab) {
       case 'cultivation':
-        titleEl.innerHTML = '☯️ Pillar 1 & 4: Four-Path Immortal Cultivation & 10<sup>ΔRealm</sup> Suppression';
+        titleEl.innerHTML =
+          '☯️ Pillar 1 & 4: Four-Path 2030 Immortal Cultivation (30 Realms) & 10<sup>ΔRealm</sup> Suppression';
         contentEl.innerHTML = this.buildCultivationTabHTML();
         this.bindCultivationEvents(contentEl);
         break;
       case 'dungeon':
-        titleEl.innerHTML = '🌀 Pillar 2: Procedural Delve Engine (BSP + WFC Dungeons & Eroded Biomes)';
+        titleEl.innerHTML =
+          '🌀 Pillar 2: Procedural Delve Engine (3D BSP Dao Grottoes + WFC & Eroded Biomes)';
         contentEl.innerHTML = this.buildDungeonTabHTML();
         this.bindDungeonEvents(contentEl);
         break;
       case 'siege':
-        titleEl.innerHTML = '🏯 Pillar 1 & 3: 50v50 Siege Delta-Sync, Squad Formations & GOAP AI';
+        titleEl.innerHTML =
+          '🏯 Pillar 1 & 3: 50v50 Siege Delta-Sync, Era 0–20 Citadels & GOAP AI';
         contentEl.innerHTML = this.buildSiegeAndAITabHTML();
         this.bindSiegeAndAIEvents(contentEl);
         break;
       case 'dialogue':
-        titleEl.innerHTML = '📜 Pillar 4: Branching Xianxia Dialogue, Karma & Faction Reputation Matrix';
+        titleEl.innerHTML =
+          '📜 Pillar 4: Branching Xianxia Dialogue, Karma & Faction Reputation Matrix';
         contentEl.innerHTML = this.buildDialogueAndLoreTabHTML();
         this.bindDialogueAndLoreEvents(contentEl);
         break;
       case 'vault':
-        titleEl.innerHTML = '🛡️ Pillar 1 & 5: SHA-256 Save Vault, Monte Carlo Sim & C++20 Guardrail Tests';
+        titleEl.innerHTML =
+          '🛡️ Pillar 1 & 5: Post-Quantum + SHA-256 Vault (v2030.1.0), Snapshots & Guardrail Tests';
         contentEl.innerHTML = this.buildVaultAndTestsTabHTML();
         this.bindVaultAndTestsEvents(contentEl);
         break;
       case 'gm_admin':
-        titleEl.innerHTML = `👑 Supreme Administration, GM, Moderator & Contact Console — ${SUPREME_ADMIN_EMAIL}`;
+        titleEl.innerHTML = `👑 2030.1 Supreme Administration, GM Console, Predictive Telemetry & Contact — ${SUPREME_ADMIN_EMAIL}`;
         contentEl.innerHTML = this.buildGMAdminTabHTML();
         this.bindGMAdminEvents(contentEl);
         break;
@@ -359,14 +583,20 @@ export class VoxelRealmsHUD {
   }
 
   // ==========================================================================
-  // TAB 1: Four-Path Cultivation & Realm Suppression (10^DeltaRealm)
+  // TAB 1: Four-Path Cultivation (30 Realms) & Realm Suppression (10^DeltaRealm)
   // ==========================================================================
   private buildCultivationTabHTML(): string {
     const cult = this.state.cultivation;
     const resonance = calculateFourPathResonance(cult.paths);
     const lineageBuff = calculateLineageCultivationBuff(cult.lineage);
-    const suppressionMult = calculateRealmSuppression(this.calcAttackerRealm, this.calcDefenderRealm);
-    const inverseMult = calculateRealmSuppression(this.calcDefenderRealm, this.calcAttackerRealm);
+    const suppressionMult = calculateRealmSuppression(
+      this.calcAttackerRealm,
+      this.calcDefenderRealm
+    );
+    const inverseMult = calculateRealmSuppression(
+      this.calcDefenderRealm,
+      this.calcAttackerRealm
+    );
 
     const pathCards = (['qi', 'body', 'soul', 'mind'] as CultivationPath[])
       .map((pathKey) => {
@@ -383,19 +613,19 @@ export class VoxelRealmsHUD {
           <div class="sr-card">
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <strong style="color:#f8fafc;font-size:14px;">${titles[pathKey]}</strong>
-              <span class="sr-tagGold">Realm #${p.realmIndex} • Layer ${p.layer}/9</span>
+              <span class="sr-tagGold">Realm #${p.realmIndex}/${MAX_REALM_INDEX} · Layer ${p.layer}/9</span>
             </div>
             <div style="margin:6px 0;color:#fbbf24;font-weight:bold;font-size:13px;">
               ${rDef.name} (${rDef.chineseTitle}) — <span style="color:#94a3b8;font-weight:normal;">${rDef.epoch}</span>
             </div>
             <div style="font-size:11px;color:#cbd5e1;margin-bottom:8px;font-variant-numeric:tabular-nums;">
-              Essence: ${formatLargeNumber(p.currentEssence)} / ${formatLargeNumber(p.requiredEssence)} • Lifespan: ${formatLargeNumber(rDef.baseLifespanYears)} yrs
+              Essence: ${formatLargeNumber(p.currentEssence)} / ${formatLargeNumber(p.requiredEssence)} · Lifespan: ${formatLargeNumber(rDef.baseLifespanYears)} yrs
             </div>
             <div style="display:flex;gap:6px;">
               <button class="sr-btn sr-btnCyan" data-breakthrough-path="${pathKey}">
-                ⚡ Break Through (${Math.round(odds.successProbability * 100)}% • ${odds.lightningBolts} Bolts)
+                ⚡ Break Through (${Math.round(odds.successProbability * 100)}% · ${odds.lightningBolts} Bolts)
               </button>
-              <button class="sr-btn" data-promote-realm="${pathKey}" title="Advance 1 full Major Realm for testing">
+              <button class="sr-btn" data-promote-realm="${pathKey}" title="Advance 1 full Major Realm (up to Realm 29)">
                 +1 Major Realm
               </button>
             </div>
@@ -416,7 +646,7 @@ export class VoxelRealmsHUD {
     return `
       <div class="sr-grid2">
         <div>
-          <h4 class="sr-sectionTitle">Four-Path Immortal Vessel (23 Realms × 9 Layers)</h4>
+          <h4 class="sr-sectionTitle">Four-Path Immortal Vessel (30 Realms × 9 Layers • 2030 Cosmic Singularity)</h4>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             ${pathCards}
           </div>
@@ -426,7 +656,7 @@ export class VoxelRealmsHUD {
               <span class="sr-tagCyan">Resonance Multiplier: ${resonance.resonanceMultiplier.toFixed(2)}x</span>
             </div>
             <p style="font-size:12px;color:#94a3b8;margin-top:4px;">
-              Master-Disciple Lineage: <strong>${cult.lineage.masterName}</strong> • Proximity Buff: <strong style="color:#10b981;">${lineageBuff.cultivationSpeedMultiplier}x Speed</strong> • Spirit Tax: <strong>${Math.round(lineageBuff.netTaxRate * 100)}%</strong> • Scrolls: <em>${cult.lineage.transmittedScrolls.join(', ')}</em>
+              Master-Disciple Lineage: <strong>${cult.lineage.masterName}</strong> · Proximity Buff: <strong style="color:#10b981;">${lineageBuff.cultivationSpeedMultiplier}x Speed</strong> · Spirit Tax: <strong>${Math.round(lineageBuff.netTaxRate * 100)}%</strong> · Scrolls: <em>${cult.lineage.transmittedScrolls.join(', ')}</em>
             </p>
           </div>
         </div>
@@ -435,7 +665,7 @@ export class VoxelRealmsHUD {
           <h4 class="sr-sectionTitle">Exponential Realm Suppression Verifier (10<sup>ΔRealm</sup>)</h4>
           <div class="sr-card" style="border-color:rgba(245,158,11,0.45);">
             <p style="font-size:12px;color:#cbd5e1;margin-bottom:10px;">
-              Backed by TypeScript & C++20 <code>static_assert(GoldenCore vs QiRefinement == 100.0)</code>.
+              Backed by TypeScript & C++20 <code>static_assert(GoldenCore vs QiRefinement == 100.0)</code> across all 30 Major Realms (0–29).
             </p>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
               <div>
@@ -467,7 +697,7 @@ export class VoxelRealmsHUD {
             <div style="font-size:12px;color:#cbd5e1;margin:8px 0;">
               ${
                 cult.karma.stationaryTribulationIntervalSec
-                  ? `⚠️ <strong style="color:#ef4444;">RED-NAME PENALTY ACTIVE:</strong> Stationary Heavenly Tribulation strikes every ${cult.karma.stationaryTribulationIntervalSec}s • Bounty: ${formatLargeNumber(cult.karma.bountySpiritStones)} Spirit Stones!`
+                  ? `⚠️ <strong style="color:#ef4444;">RED-NAME PENALTY ACTIVE:</strong> Stationary Heavenly Tribulation strikes every ${cult.karma.stationaryTribulationIntervalSec}s · Bounty: ${formatLargeNumber(cult.karma.bountySpiritStones)} Spirit Stones!`
                   : `✅ Orthodox Aura Protected: No stationary Tribulation Lightning penalty.`
               }
             </div>
@@ -489,7 +719,7 @@ export class VoxelRealmsHUD {
         if (!p) return;
         if (p.layer < 9) {
           p.layer++;
-        } else if (p.realmIndex < 22) {
+        } else if (p.realmIndex < MAX_REALM_INDEX) {
           p.realmIndex++;
           p.layer = 1;
         }
@@ -504,7 +734,7 @@ export class VoxelRealmsHUD {
       btn.addEventListener('click', () => {
         const pathKey = btn.getAttribute('data-promote-realm') as CultivationPath;
         const p = this.state.cultivation.paths[pathKey];
-        if (!p || p.realmIndex >= 22) return;
+        if (!p || p.realmIndex >= MAX_REALM_INDEX) return;
         p.realmIndex++;
         p.requiredEssence = getRequiredEssenceForLayer(p.realmIndex, p.layer);
         p.currentEssence = p.requiredEssence;
@@ -552,12 +782,13 @@ export class VoxelRealmsHUD {
   // ==========================================================================
   private buildDungeonTabHTML(): string {
     const d = this.currentDungeon;
+    const eraInfo = getCastleEraMultiplier(this.state.castleLevel);
     const roomListHTML = d.rooms
       .map(
         (r) => `
         <div style="display:flex;justify-content:space-between;padding:5px 8px;background:rgba(15,23,42,0.75);border:1px solid rgba(148,163,184,0.18);border-radius:4px;font-size:11px;">
-          <span><strong>${r.name}</strong> (${r.width}×${r.height}m • Z:${r.zElevation}m)</span>
-          <span style="color:#fbbf24;">Bracket ${r.monsterBracket} • Lv.${r.monsterLevel}</span>
+          <span><strong>${r.name}</strong> (${r.width}×${r.height}m · Z:${r.zElevation}m)</span>
+          <span style="color:#fbbf24;">Bracket ${r.monsterBracket} · Lv.${r.monsterLevel}</span>
         </div>
       `
       )
@@ -567,7 +798,7 @@ export class VoxelRealmsHUD {
       <div class="sr-grid2">
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <h4 class="sr-sectionTitle" style="margin:0;">BSP + WFC Dungeon Blueprint (${d.width}×${d.height})</h4>
+            <h4 class="sr-sectionTitle" style="margin:0;">BSP + WFC 3D Dao Grotto Blueprint (${d.width}×${d.height}×${d.depth3D}Z)</h4>
             <span class="sr-tagCyan">${d.isSolvable ? `✓ A* Solvable (${d.astarPathToBoss.length} steps)` : 'Unreachable'}</span>
           </div>
           <div class="sr-card" style="display:flex;flex-direction:column;align-items:center;">
@@ -583,7 +814,7 @@ export class VoxelRealmsHUD {
         </div>
 
         <div>
-          <h4 class="sr-sectionTitle">Generator Controls & 3D Delve Immersion</h4>
+          <h4 class="sr-sectionTitle">Generator Controls & 3D Studio PBR Immersion</h4>
           <div class="sr-card">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
               <div>
@@ -601,19 +832,19 @@ export class VoxelRealmsHUD {
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="sr-btn sr-btnCyan" id="btn-regen-dungeon">🎲 Synthesize New BSP+WFC Delve</button>
-              <button class="sr-btn sr-btnGold" id="btn-launch-3d-delve">🌀 Enter 3D WebGL Dungeon Viewport</button>
+              <button class="sr-btn sr-btnGold" id="btn-launch-3d-delve">🌀 Enter 3D Studio PBR Dungeon Viewport</button>
               <button class="sr-btn" id="btn-ping-dungeon-boss">🎯 Ping Boss Sanctum on Radar</button>
             </div>
           </div>
 
-          <h4 class="sr-sectionTitle" style="margin-top:12px;">Carved BSP Rooms & WFCCollapsed Cells (${d.wfcCollapsedCells})</h4>
+          <h4 class="sr-sectionTitle" style="margin-top:12px;">Carved 3D BSP Chambers & WFC Cells (${d.wfcCollapsedCells})</h4>
           <div style="display:flex;flex-direction:column;gap:5px;max-height:175px;overflow-y:auto;">
             ${roomListHTML}
           </div>
 
           <div class="sr-card" style="margin-top:10px;">
             <div style="display:flex;justify-content:space-between;align-items:center;">
-              <span style="font-size:12px;">Overworld Weather & Citadel Level (Lv.${this.state.castleLevel})</span>
+              <span style="font-size:12px;">Citadel Lv.${this.state.castleLevel} (Era ${eraInfo.eraIndex}: ${eraInfo.eraMultiplier}x)</span>
               <select id="overworld-weather-select" class="sr-select" style="width:auto;">
                 ${Object.values(WEATHER_CATALOG)
                   .map(
@@ -630,7 +861,9 @@ export class VoxelRealmsHUD {
   }
 
   private bindDungeonEvents(root: HTMLElement) {
-    this.drawDungeonBlueprintCanvas(root.querySelector<HTMLCanvasElement>('#dungeon-blueprint-canvas'));
+    this.drawDungeonBlueprintCanvas(
+      root.querySelector<HTMLCanvasElement>('#dungeon-blueprint-canvas')
+    );
 
     root.querySelector('#btn-regen-dungeon')?.addEventListener('click', () => {
       const themeSel = root.querySelector<HTMLSelectElement>('#dungeon-theme-select');
@@ -870,7 +1103,9 @@ export class VoxelRealmsHUD {
   }
 
   private bindSiegeAndAIEvents(root: HTMLElement) {
-    this.drawSiegeBattlefieldCanvas(root.querySelector<HTMLCanvasElement>('#siege-battlefield-canvas'));
+    this.drawSiegeBattlefieldCanvas(
+      root.querySelector<HTMLCanvasElement>('#siege-battlefield-canvas')
+    );
 
     root.querySelector('#btn-step-siege-tick')?.addEventListener('click', () => {
       this.siegeBaseline = this.siegeCurrent;
@@ -886,7 +1121,11 @@ export class VoxelRealmsHUD {
 
     root.querySelector('#btn-reset-siege')?.addEventListener('click', () => {
       this.siegeBaseline = createInitialSiegeSnapshot(Math.floor(this.state.castleLevel / 10));
-      this.siegeCurrent = stepSiegeSimulationTick(this.siegeBaseline, 0.05, this.state.activeFormation);
+      this.siegeCurrent = stepSiegeSimulationTick(
+        this.siegeBaseline,
+        0.05,
+        this.state.activeFormation
+      );
       this.lastSiegeDelta = encodeSiegeDeltaPacket(this.siegeBaseline, this.siegeCurrent);
       this.renderModalContent();
     });
@@ -1065,7 +1304,11 @@ export class VoxelRealmsHUD {
           if (eff.innerDemonResistanceDelta) {
             this.state.cultivation.innerDemonResistance = Math.min(
               0.95,
-              Number((this.state.cultivation.innerDemonResistance + eff.innerDemonResistanceDelta).toFixed(2))
+              Number(
+                (
+                  this.state.cultivation.innerDemonResistance + eff.innerDemonResistanceDelta
+                ).toFixed(2)
+              )
             );
           }
           if (
@@ -1135,7 +1378,7 @@ export class VoxelRealmsHUD {
   }
 
   // ==========================================================================
-  // TAB 5: Save Vault (SHA-256), Monte Carlo Combat Sim & Guardrail Test Suite
+  // TAB 5: Save Vault (Post-Quantum + SHA-256 v2030.1.0), Snapshots & Tests
   // ==========================================================================
   private buildVaultAndTestsTabHTML(): string {
     const check = verifySaveEnvelopeChecksum(this.lastSaveEnvelope);
@@ -1148,11 +1391,11 @@ export class VoxelRealmsHUD {
         bombers: 140_000_000_000,
         tier: this.state.army.tier,
       },
-      attackerRealmIndex: this.state.cultivation.paths.qi.realmIndex,
+      attackerRealmIndex: Math.min(22, this.state.cultivation.paths.qi.realmIndex),
       defenderRealmIndex: 2,
       attackerArmor: 1200,
       defenderArmor: 1200,
-      seed: 2026,
+      seed: 2030,
     });
 
     const sinkInfo = evaluateEconomyInflationSink({
@@ -1164,29 +1407,53 @@ export class VoxelRealmsHUD {
     const vipInfo = getVIPBenefitProfile(this.state.vipLevel);
     const loginInfo = getCyclicalLoginMultiplier(this.state.loginStreakDays);
     const eraInfo = getCastleEraMultiplier(this.state.castleLevel);
-    const armorInfo = calculateDiminishingArmorMitigation(1200, eraInfo.eraIndex);
+    const armorInfo = calculateDiminishingArmorMitigation(1200, Math.min(10, eraInfo.eraIndex));
 
     const testSuite = runAllArchitecturalGuardrailTests();
+
+    const snapshotsHTML = this.saveSnapshots
+      .map(
+        (snap) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 7px;background:rgba(15,23,42,0.8);border:1px solid rgba(6,182,212,0.28);border-radius:4px;font-size:10px;font-variant-numeric:tabular-nums;">
+          <div>
+            <strong style="color:#f8fafc;">${snap.label}</strong>
+            <span style="color:#94a3b8;margin-left:6px;">${snap.createdAtIso.slice(11, 19)} UTC</span>
+          </div>
+          <button class="sr-btn sr-btnGold" style="padding:2px 6px;font-size:10px;" data-restore-snapshot="${snap.snapshotId}">
+            ⏪ Rollback
+          </button>
+        </div>
+      `
+      )
+      .join('');
 
     return `
       <div class="sr-grid2">
         <div>
-          <h4 class="sr-sectionTitle">Three-Tier Persistence & SHA-256 Integrity Checksum</h4>
+          <h4 class="sr-sectionTitle">Post-Quantum Lattice-Hash + SHA-256 Vault (Schema v${this.lastSaveEnvelope.schemaVersion})</h4>
           <div class="sr-card" style="border-color:${this.tamperTestDiagnostic ? '#ef4444' : 'rgba(16,185,129,0.4)'};">
             <div style="font-size:11px;color:#cbd5e1;font-variant-numeric:tabular-nums;word-break:break-all;">
-              <div><strong>Schema:</strong> v${this.lastSaveEnvelope.schemaVersion} • <strong>Saved:</strong> ${this.lastSaveEnvelope.savedAtIso}</div>
+              <div><strong>Schema:</strong> v${this.lastSaveEnvelope.schemaVersion} · <strong>Saved:</strong> ${this.lastSaveEnvelope.savedAtIso}</div>
               <div style="margin-top:4px;color:#10b981;"><strong>SHA-256:</strong> <code>${this.lastSaveEnvelope.checksumSha256}</code></div>
+              <div style="margin-top:3px;color:#a855f7;"><strong>PQ Lattice Seal:</strong> <code>${this.lastSaveEnvelope.postQuantumLatticeSealHex || 'LWE2030:ACTIVE'}</code></div>
               <div style="margin-top:4px;color:${this.tamperTestDiagnostic ? '#ef4444' : '#38bdf8'};font-weight:bold;">
                 ${this.tamperTestDiagnostic || check.diagnostic}
               </div>
             </div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
-              <button class="sr-btn sr-btnGreen" id="btn-save-local">💾 Save & Sign (SHA-256 + /ws Sync)</button>
-              <button class="sr-btn sr-btnCyan" id="btn-export-json">📤 Export JSON Scroll</button>
-              <button class="sr-btn sr-btnCrimson" id="btn-test-tamper">⚠️ Simulate Save Tampering</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+              <button class="sr-btn sr-btnGreen" id="btn-save-local">💾 Save & Sign (SHA-256 + PQ Seal)</button>
+              <button class="sr-btn sr-btnCyan" id="btn-capture-snapshot">📸 Capture Snapshot</button>
+              <button class="sr-btn sr-btnGold" id="btn-export-json">📤 Export JSON</button>
+              <button class="sr-btn sr-btnCrimson" id="btn-test-tamper">⚠️ Simulate Tamper</button>
             </div>
-            <textarea id="save-json-textarea" class="sr-input" style="width:100%;height:68px;margin-top:8px;font-family:monospace;font-size:10px;" placeholder="Paste signed JSON scroll here to verify SHA-256 & import..."></textarea>
-            <button class="sr-btn" id="btn-import-json" style="margin-top:4px;width:100%;">📥 Verify SHA-256 Checksum & Import JSON Scroll</button>
+            <div style="margin-top:8px;">
+              <div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">2030 Snapshot Rollback Manager (${this.saveSnapshots.length} Checkpoints):</div>
+              <div style="display:flex;flex-direction:column;gap:4px;max-height:76px;overflow-y:auto;">
+                ${snapshotsHTML}
+              </div>
+            </div>
+            <textarea id="save-json-textarea" class="sr-input" style="width:100%;height:56px;margin-top:8px;font-family:monospace;font-size:10px;" placeholder="Paste v1.5.0 or v2030.1.0 JSON scroll here to verify & import..."></textarea>
+            <button class="sr-btn" id="btn-import-json" style="margin-top:4px;width:100%;">📥 Verify Dual Checksum & Import JSON Scroll</button>
           </div>
 
           <h4 class="sr-sectionTitle" style="margin-top:10px;">Monte Carlo Combat Simulator (${simResult.iterations} Rounds)</h4>
@@ -1199,17 +1466,17 @@ export class VoxelRealmsHUD {
             <div style="color:#cbd5e1;font-size:11px;">• ${simResult.counterAdvantageSummary}</div>
             <div style="color:#38bdf8;font-size:11px;margin-top:3px;">• ${simResult.dominantStrategyDiagnosis}</div>
             <div style="color:#94a3b8;font-size:11px;margin-top:3px;">
-              • Armor Mitigation: ${(armorInfo.mitigationRatio * 100).toFixed(1)}% • VIP ${vipInfo.vipLevel} (-${Math.round(vipInfo.trainingCostDiscount * 100)}% Cost) • Day-${loginInfo.cycleDay} Streak (${loginInfo.rewardMultiplier}x) • Economy: ${sinkInfo.scarcityStatus} (Tax ${sinkInfo.dynamicTaxRatePercent}%)
+              • Armor Mitigation: ${(armorInfo.mitigationRatio * 100).toFixed(1)}% · VIP ${vipInfo.vipLevel} (-${Math.round(vipInfo.trainingCostDiscount * 100)}% Cost) · Day-${loginInfo.cycleDay} Streak (${loginInfo.rewardMultiplier}x) · Economy: ${sinkInfo.scarcityStatus} (Tax ${sinkInfo.dynamicTaxRatePercent}%)
             </div>
           </div>
         </div>
 
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-            <h4 class="sr-sectionTitle" style="margin:0;">Automated CI Guardrail & Unit Test Suite</h4>
+            <h4 class="sr-sectionTitle" style="margin:0;">Automated 2030.1 CI Guardrail & Unit Test Suite</h4>
             <span class="sr-tagGreen">${testSuite.passedCount}/${testSuite.totalCount} PASSED</span>
           </div>
-          <div style="display:flex;flex-direction:column;gap:5px;max-height:360px;overflow-y:auto;">
+          <div style="display:flex;flex-direction:column;gap:5px;max-height:390px;overflow-y:auto;">
             ${testSuite.results
               .map(
                 (r) => `
@@ -1238,6 +1505,24 @@ export class VoxelRealmsHUD {
       this.tamperTestDiagnostic = null;
       this.persistState(true);
       this.renderModalContent();
+    });
+
+    root.querySelector('#btn-capture-snapshot')?.addEventListener('click', () => {
+      this.tamperTestDiagnostic = null;
+      this.captureStateSnapshot(
+        `Realm #${this.state.cultivation.paths.qi.realmIndex} · Citadel Lv.${this.state.castleLevel}`
+      );
+      this.renderModalContent();
+    });
+
+    root.querySelectorAll<HTMLButtonElement>('[data-restore-snapshot]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const snapId = btn.getAttribute('data-restore-snapshot') || 'latest';
+        if (this.rollbackToSnapshot(snapId)) {
+          this.tamperTestDiagnostic = null;
+          this.renderModalContent();
+        }
+      });
     });
 
     root.querySelector('#btn-export-json')?.addEventListener('click', () => {
@@ -1281,7 +1566,7 @@ export class VoxelRealmsHUD {
   }
 
   // ==========================================================================
-  // TAB 6: Supreme Administration, GM, Moderator & Contact Console (creatergame31@gmail.com)
+  // TAB 6: Supreme Administration, 2030 GM Command Console, Recharts & Contact
   // ==========================================================================
   public displayGMBroadcastBanner(decree: {
     senderEmail: string;
@@ -1292,43 +1577,418 @@ export class VoxelRealmsHUD {
     if (bannerEl) {
       bannerEl.style.display = 'flex';
       bannerEl.style.borderColor = '#f59e0b';
-      bannerEl.innerHTML = `<span style="color:#fbbf24;font-weight:bold;">👑 [GM DECREE • ${decree.senderEmail}]:</span>&nbsp;<span style="color:#f8fafc;">${decree.message}</span>`;
+      bannerEl.innerHTML = `<span style="color:#fbbf24;font-weight:bold;">👑 [GM DECREE · ${decree.senderEmail}]:</span>&nbsp;<span style="color:#f8fafc;">${decree.message}</span>`;
     }
     const chatMessages = document.getElementById('chat-messages');
     if (chatMessages) {
       const div = document.createElement('div');
       div.style.marginBottom = '4px';
-      div.innerHTML = `<span style="color:#fbbf24;font-weight:bold;">👑 [SUPREME GM / ADMIN • ${decree.senderEmail}]:</span> <span style="color:#fde68a;">${decree.message}</span>`;
+      div.innerHTML = `<span style="color:#fbbf24;font-weight:bold;">👑 [SUPREME GM / ADMIN · ${decree.senderEmail}]:</span> <span style="color:#fde68a;">${decree.message}</span>`;
       chatMessages.appendChild(div);
       chatMessages.scrollTop = chatMessages.scrollHeight;
     }
   }
 
+  public executeConsoleAction(payload: GMConsoleCommandPayload) {
+    if (!isUserAdmin(this.currentUser)) {
+      return;
+    }
+    const { nextSession, result } = executeGMConsoleCommand(this.gmSession, payload);
+    this.gmSession = nextSession;
+
+    // Apply gameplay mutations locally & notify GameScene + WebSocket server
+    if (payload.action === 'set_cultivation_realm') {
+      const rIdx = Math.max(0, Math.min(MAX_REALM_INDEX, payload.realmIndex ?? 29));
+      const layer = Math.max(1, Math.min(9, payload.layer ?? 9));
+      (['qi', 'body', 'soul', 'mind'] as CultivationPath[]).forEach((pKey) => {
+        const p = this.state.cultivation.paths[pKey];
+        p.realmIndex = rIdx;
+        p.layer = layer;
+        p.requiredEssence = getRequiredEssenceForLayer(rIdx, layer);
+        p.currentEssence = p.requiredEssence;
+      });
+      this.persistState(true);
+      this.callbacks.onGMAction?.({
+        type: 'set_cultivation_realm',
+        value: { realmIndex: rIdx, layer },
+      });
+    } else if (payload.action === 'teleport_player') {
+      const x = payload.x ?? 1280;
+      const y = payload.y ?? 720;
+      this.callbacks.onGMAction?.({
+        type: 'teleport',
+        value: { x, y, targetUserId: payload.targetUserId },
+      });
+      this.callbacks.onTriggerWorldPing?.(
+        x,
+        y,
+        'move',
+        `GM teleport_player (${payload.targetUserId || 'self'})`
+      );
+    } else if (payload.action === 'teleport_all_players') {
+      const x = payload.x ?? 640;
+      const y = payload.y ?? 360;
+      this.callbacks.onGMAction?.({ type: 'teleport_all_players', value: { x, y } });
+      this.callbacks.onTriggerWorldPing?.(
+        x,
+        y,
+        'defend',
+        `GM Bulk teleport_all_players (${result.affectedEntitiesCount} entities)`
+      );
+    } else if (payload.action === 'spawn_item') {
+      this.state.cultivation.spiritStones += 50_000;
+      this.persistState(true);
+      this.callbacks.onGMAction?.({ type: 'spawn_item', value: payload });
+    } else if (payload.action === 'spawn_multiple_items') {
+      const qty = payload.quantity ?? 50;
+      this.state.cultivation.spiritStones += qty * 25_000;
+      this.persistState(true);
+      this.callbacks.onGMAction?.({ type: 'spawn_multiple_items', value: payload });
+    } else if (payload.action === 'kick_player' || payload.action === 'ban_player') {
+      this.callbacks.onGMAction?.({ type: payload.action, value: payload });
+    } else if (payload.action === 'migrate_shard') {
+      this.state.activeShardId = payload.targetShardId || 'Shard-Alpha-2030';
+      this.persistState(true);
+      this.callbacks.onGMAction?.({ type: 'migrate_shard', value: payload });
+    } else if (payload.action === 'rollback_snapshot') {
+      this.rollbackToSnapshot(payload.snapshotId);
+      this.callbacks.onGMAction?.({ type: 'rollback_snapshot', value: payload });
+    }
+
+    // Broadcast to WebSocket server (/ws)
+    if (result.broadcastPayload) {
+      this.callbacks.onBroadcastNetworkMessage?.(
+        result.broadcastPayload.type,
+        result.broadcastPayload
+      );
+    }
+
+    // Show feedback in HUD banner & chat
+    this.displayGMBroadcastBanner({
+      senderEmail: this.currentUser.email,
+      message: `[${payload.action}] ${result.summary}`,
+      timestamp: Date.now(),
+    });
+
+    if (this.activeModalTab === 'gm_admin') {
+      this.renderModalContent();
+    }
+  }
+
+  private mountOrUpdateRechartsTelemetry() {
+    const container = document.getElementById('gm-recharts-telemetry-mount');
+    if (!container) return;
+
+    if (this.rechartsMountNode !== container || !this.rechartsRoot) {
+      this.rechartsMountNode = container;
+      this.rechartsRoot = createRoot(container);
+    }
+
+    const activeUsersCount =
+      this.gmSession.connectedPlayers.filter((p) => p.status === 'active').length + 1;
+
+    this.rechartsRoot.render(
+      React.createElement(GMServerTelemetryChart, {
+        telemetryHistory: this.telemetryHistory,
+        activeUsersCount,
+        kickedCount: this.gmSession.kickedUserIds.length,
+        bannedCount: this.gmSession.bannedUserIds.length,
+        wsConnected: this.wsConnectedState,
+        activeShardId: this.gmSession.activeShardId,
+      })
+    );
+  }
+
   private buildGMAdminTabHTML(): string {
     const profile = getSupremeAdminContactProfile();
-    const integrityOk = verifyGMSessionIntegrity(this.gmSession);
+    const integrityOk = verifyGMSessionIntegrity(this.gmSession) && isUserAdmin(this.currentUser);
+
+    const realmOptionsHTML = CULTIVATION_REALMS.map(
+      (r) =>
+        `<option value="${r.index}" ${
+          r.index === this.consoleTargetRealmIndex ? 'selected' : ''
+        }>Realm #${r.index}: ${r.name} (${r.chineseTitle})</option>`
+    ).join('');
+
+    const shardOptionsHTML = (
+      ['Shard-Alpha-2030', 'Shard-Omega-Void', 'Shard-Celestial-Siege'] as ServerShardId[]
+    )
+      .map(
+        (sh) =>
+          `<option value="${sh}" ${sh === this.consoleTargetShard ? 'selected' : ''}>${sh}</option>`
+      )
+      .join('');
+
+    const playerRosterHTML = this.gmSession.connectedPlayers
+      .map((p) => {
+        const badgeClass =
+          p.status === 'active'
+            ? 'sr-tagGreen'
+            : p.status === 'kicked'
+            ? 'sr-tagGold'
+            : 'sr-tagCyan';
+        const statusColor =
+          p.status === 'active' ? '#10b981' : p.status === 'kicked' ? '#f59e0b' : '#ef4444';
+        return `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:rgba(15,23,42,0.82);border:1px solid rgba(148,163,184,0.18);border-radius:4px;font-size:11px;font-variant-numeric:tabular-nums;">
+            <div>
+              <strong style="color:#f8fafc;">${p.username}</strong>
+              <code style="color:#38bdf8;font-size:10px;margin-left:4px;">[${p.userId}]</code>
+              <span style="color:#a855f7;font-size:10px;margin-left:4px;">${p.shardId}</span>
+              <span style="color:#94a3b8;font-size:10px;margin-left:4px;">(${p.x}, ${p.y}) · ${p.pingMs}ms</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <span class="${badgeClass}" style="color:${statusColor};border-color:${statusColor};">${p.status.toUpperCase()}</span>
+              <button class="sr-btn" style="padding:2px 6px;font-size:10px;" data-select-userid="${p.userId}">Select ID</button>
+              <button class="sr-btn sr-btnGold" style="padding:2px 6px;font-size:10px;" data-quick-kick="${p.userId}">Kick</button>
+              <button class="sr-btn sr-btnCrimson" style="padding:2px 6px;font-size:10px;" data-quick-ban="${p.userId}">Ban</button>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    const consoleHistoryHTML =
+      this.gmSession.consoleHistory.length > 0
+        ? this.gmSession.consoleHistory
+            .slice(0, 6)
+            .map(
+              (entry) => `
+              <div style="padding:5px 8px;background:rgba(8,10,16,0.9);border-left:3px solid #06b6d4;border-radius:4px;font-size:11px;font-family:monospace;">
+                <span style="color:#fbbf24;">[${entry.action}]</span>
+                <span style="color:#10b981;"> (${entry.affectedEntitiesCount} entities)</span>:
+                <span style="color:#f8fafc;"> ${entry.summary}</span>
+              </div>
+            `
+            )
+            .join('')
+        : `<div style="font-size:11px;color:#94a3b8;padding:6px;">Ready for 2030.1 GM Command Console execution (authorized: ${this.currentUser.email}).</div>`;
 
     const auditRowsHTML = this.gmSession.auditLog
+      .slice(0, 8)
       .map(
         (entry) => `
-        <div style="padding:6px 8px;background:rgba(15,23,42,0.82);border-left:3px solid #f59e0b;border-radius:4px;font-size:11px;">
+        <div style="padding:5px 8px;background:rgba(15,23,42,0.82);border-left:3px solid #f59e0b;border-radius:4px;font-size:10px;">
           <div style="display:flex;justify-content:space-between;">
             <strong style="color:#fbbf24;">[${entry.action}]</strong>
-            <span style="color:#94a3b8;font-size:10px;font-variant-numeric:tabular-nums;">${entry.timestampIso.slice(11, 19)} UTC</span>
+            <span style="color:#94a3b8;font-variant-numeric:tabular-nums;">${entry.timestampIso.slice(11, 19)} UTC</span>
           </div>
-          <div style="color:#e2e8f0;font-size:11px;margin-top:2px;">${entry.details}</div>
-          <div style="color:#38bdf8;font-size:10px;margin-top:2px;">Actor: ${entry.actorEmail} (${entry.role})</div>
+          <div style="color:#e2e8f0;margin-top:2px;">${entry.details}</div>
+        </div>
+      `
+      )
+      .join('');
+
+    const spawnedVaultHTML = this.gmSession.spawnedItemsInventory
+      .slice(0, 5)
+      .map(
+        (item) => `
+        <span class="sr-tagGold" style="font-size:10px;">📦 ${item.itemName} ×${item.quantity}</span>
+      `
+      )
+      .join('');
+
+    const scheduledDecreesHTML = this.gmSession.scheduledDecrees
+      .slice(0, 3)
+      .map(
+        (d) => `
+        <div style="font-size:10px;color:#a5f3fc;padding:3px 6px;background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.3);border-radius:3px;">
+          ⏱️ Every ${d.intervalSec}s: "${d.message}"
         </div>
       `
       )
       .join('');
 
     return `
+      <!-- SUB-SECTION 1: 2030 Predictive Server Load, Anomaly Risk & Active User Telemetry (Recharts) -->
+      <div style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <h4 class="sr-sectionTitle" style="margin:0;">📊 2030 Predictive Server Load, Anomaly Detection & Active User Telemetry (Recharts)</h4>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span class="sr-tagCyan">Shard: ${this.gmSession.activeShardId} · Role: ${this.currentUser.role.toUpperCase()}</span>
+            <button class="sr-btn sr-btnCyan" id="btn-gm-sample-telemetry" style="padding:3px 8px;font-size:10px;">⚡ Poll /ws Telemetry Now</button>
+          </div>
+        </div>
+        <div class="sr-card" style="border-color:rgba(6,182,212,0.4);">
+          <div id="gm-recharts-telemetry-mount" style="min-height:245px;"></div>
+        </div>
+      </div>
+
+      <!-- SUB-SECTION 2: GM Command Console (Single, Bulk, Kick/Ban, 2030 Batch Scripting & Cross-Shard Migration) -->
+      <div style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <h4 class="sr-sectionTitle" style="margin:0;">💻 2030.1 GM Command Console — Single, Bulk, Moderation, Batch Scripts & Cross-Shard</h4>
+          <span class="sr-tagGold">${integrityOk ? '✓ AUTHORIZED: creatergame31@gmail.com' : '🔒 LOCKED'}</span>
+        </div>
+
+        <div class="sr-card" style="border-color:rgba(245,158,11,0.5);display:flex;flex-direction:column;gap:10px;">
+          <!-- Direct Command Line Bar -->
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span style="color:#fbbf24;font-family:monospace;font-weight:bold;font-size:12px;">GM&gt;</span>
+            <input
+              id="gm-console-cli-input"
+              type="text"
+              class="sr-input"
+              style="font-family:monospace;font-size:11px;"
+              value="${this.consoleCliRaw}"
+              placeholder="e.g. spawn_item Jade_Sword 1 | spawn_multiple_items Golden_Pill 50 | teleport_all_players 640 360 | kick_player rogue_fiend_07 | migrate_shard Shard-Omega-Void ALL"
+            />
+            <button class="sr-btn sr-btnGold" id="btn-exec-cli-cmd" style="white-space:nowrap;">▶ Run Console Command</button>
+          </div>
+
+          <div class="sr-grid2" style="gap:12px;">
+            <!-- Left Column: Single & Bulk Entity Actions + 2030 Batch Macro Script Runner -->
+            <div style="background:rgba(15,23,42,0.65);border:1px solid rgba(148,163,184,0.2);border-radius:6px;padding:9px;display:flex;flex-direction:column;gap:8px;">
+              <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;">
+                ⚡ Single & Bulk Entity Actions (Items, Teleport, 30 Realms)
+              </div>
+
+              <!-- Spawn Item & Bulk Spawn Multiple Items -->
+              <div style="display:grid;grid-template-columns:1.5fr 0.7fr;gap:6px;">
+                <div>
+                  <label style="font-size:10px;color:#94a3b8;display:block;">Artifact / Item Name</label>
+                  <input id="gm-item-name-input" type="text" class="sr-input" value="${this.consoleItemName}" />
+                </div>
+                <div>
+                  <label style="font-size:10px;color:#94a3b8;display:block;">Bulk Qty</label>
+                  <input id="gm-item-qty-input" type="number" min="2" max="10000" class="sr-input" value="${this.consoleBulkQuantity}" />
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="sr-btn sr-btnCyan" id="btn-cmd-spawn-item" style="flex:1;">
+                  🗡️ spawn_item (×1)
+                </button>
+                <button class="sr-btn sr-btnGold" id="btn-cmd-spawn-multiple-items" style="flex:1.25;">
+                  📦 Bulk: spawn_multiple_items
+                </button>
+              </div>
+
+              <!-- Teleport Player & Bulk Teleport All Players -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:2px;">
+                <div>
+                  <label style="font-size:10px;color:#94a3b8;display:block;">Target X Coord</label>
+                  <input id="gm-tp-x-input" type="number" class="sr-input" value="${this.consoleTeleportX}" />
+                </div>
+                <div>
+                  <label style="font-size:10px;color:#94a3b8;display:block;">Target Y Coord</label>
+                  <input id="gm-tp-y-input" type="number" class="sr-input" value="${this.consoleTeleportY}" />
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="sr-btn sr-btnCyan" id="btn-cmd-teleport-player" style="flex:1;">
+                  📍 teleport_player
+                </button>
+                <button class="sr-btn sr-btnGold" id="btn-cmd-teleport-all-players" style="flex:1.25;">
+                  🌐 Bulk: teleport_all_players
+                </button>
+              </div>
+
+              <!-- Set Cultivation Realm (0–29) -->
+              <div style="display:flex;gap:6px;align-items:flex-end;margin-top:2px;">
+                <div style="flex:1;">
+                  <label style="font-size:10px;color:#94a3b8;display:block;">Target Cultivation Realm (0–29 • 2030 Singularity)</label>
+                  <select id="gm-realm-select" class="sr-select">${realmOptionsHTML}</select>
+                </div>
+                <button class="sr-btn sr-btnGreen" id="btn-cmd-set-realm" style="white-space:nowrap;">
+                  ☯️ set_cultivation_realm
+                </button>
+              </div>
+
+              <!-- 2030 Multi-Line Batch Entity Scripting -->
+              <div style="border-top:1px solid rgba(148,163,184,0.18);padding-top:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                  <span style="font-size:10px;color:#a855f7;font-weight:700;text-transform:uppercase;">📜 2030 Batch Entity Macro Script</span>
+                  <button class="sr-btn sr-btnGold" id="btn-run-batch-script" style="padding:2px 8px;font-size:10px;">⚡ Execute Batch Macro</button>
+                </div>
+                <textarea id="gm-batch-script-textarea" class="sr-input" style="height:56px;font-family:monospace;font-size:10px;">${this.consoleBatchScriptText}</textarea>
+              </div>
+
+              <div style="display:flex;flex-wrap:wrap;gap:4px;padding-top:4px;border-top:1px solid rgba(148,163,184,0.15);">
+                ${spawnedVaultHTML}
+              </div>
+            </div>
+
+            <!-- Right Column: Kick & Ban Player + Cross-Shard Migration & Snapshot Rollback -->
+            <div style="background:rgba(15,23,42,0.65);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:9px;display:flex;flex-direction:column;gap:8px;">
+              <div style="font-size:11px;font-weight:700;color:#f87171;text-transform:uppercase;">
+                🛡️ Player Moderation, Cross-Shard Migration & Rollback (/ws)
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:6px;">
+                <div>
+                  <label style="font-size:10px;color:#94a3b8;display:block;">Target User ID</label>
+                  <input
+                    id="gm-console-userid-input"
+                    type="text"
+                    class="sr-input"
+                    value="${this.consoleTargetUserId}"
+                    placeholder="Enter user ID (e.g. rogue_fiend_07)"
+                  />
+                </div>
+                <div>
+                  <label style="font-size:10px;color:#94a3b8;display:block;">Termination / Ban Reason</label>
+                  <input
+                    id="gm-console-reason-input"
+                    type="text"
+                    class="sr-input"
+                    value="${this.consoleModReason}"
+                    placeholder="Reason broadcast to server"
+                  />
+                </div>
+              </div>
+
+              <div style="display:flex;gap:6px;">
+                <button class="sr-btn sr-btnGold" id="btn-cmd-kick-player" style="flex:1;">
+                  👢 kick_player (Terminate Session)
+                </button>
+                <button class="sr-btn sr-btnCrimson" id="btn-cmd-ban-player" style="flex:1;">
+                  🚫 ban_player (Permanent Ban + Drop /ws)
+                </button>
+              </div>
+
+              <!-- Cross-Shard Player Migration & Snapshot Rollback -->
+              <div style="border-top:1px solid rgba(148,163,184,0.18);padding-top:6px;display:flex;flex-direction:column;gap:6px;">
+                <div style="display:flex;gap:6px;align-items:flex-end;">
+                  <div style="flex:1;">
+                    <label style="font-size:10px;color:#94a3b8;display:block;">2030 Destination Server Shard</label>
+                    <select id="gm-shard-select" class="sr-select">${shardOptionsHTML}</select>
+                  </div>
+                  <button class="sr-btn sr-btnCyan" id="btn-cmd-migrate-shard" style="white-space:nowrap;">
+                    🌌 migrate_shard (All Active)
+                  </button>
+                  <button class="sr-btn sr-btnGreen" id="btn-cmd-rollback-snapshot" style="white-space:nowrap;">
+                    ⏪ rollback_snapshot
+                  </button>
+                </div>
+              </div>
+
+              <div style="font-size:10px;color:#94a3b8;margin-top:2px;">
+                Connected Realm User Sessions (Click to populate User ID or terminate):
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;max-height:115px;overflow-y:auto;">
+                ${playerRosterHTML}
+              </div>
+            </div>
+          </div>
+
+          <!-- Console Execution Feed -->
+          <div>
+            <div style="font-size:10px;color:#94a3b8;margin-bottom:4px;text-transform:uppercase;">
+              Console Execution Log
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;max-height:92px;overflow-y:auto;">
+              ${consoleHistoryHTML}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUB-SECTION 3: Verified Contact Profile, Scheduled Decrees, Quick Overrides & Audit Trail -->
       <div class="sr-grid2">
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
             <h4 class="sr-sectionTitle" style="margin:0;">Verified Supreme Account & Official Contact</h4>
-            <span class="sr-tagGold">${integrityOk ? '✓ ROOT GMPriv::All (0x3FF) ACTIVE' : 'LOCKED'}</span>
+            <span class="sr-tagGold">${integrityOk ? '✓ ROOT GMPriv::All (0x1FFF) ACTIVE' : 'LOCKED'}</span>
           </div>
           <div class="sr-card" style="border-color:rgba(245,158,11,0.55);background:linear-gradient(180deg,rgba(245,158,11,0.08),rgba(8,10,16,0.85));">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
@@ -1361,55 +2021,45 @@ export class VoxelRealmsHUD {
             </div>
           </div>
 
-          <h4 class="sr-sectionTitle" style="margin-top:12px;">Global Server GM / Moderator Decree Broadcast (/ws)</h4>
-          <div class="sr-card">
+          <h4 class="sr-sectionTitle" style="margin-top:10px;">Global & Scheduled Server GM Decrees (/ws)</h4>
+          <div class="sr-card" style="display:flex;flex-direction:column;gap:6px;">
             <div style="display:flex;gap:6px;">
-              <input id="gm-broadcast-input" type="text" class="sr-input" value="By Decree of Supreme Admin creatergame31@gmail.com: Heavenly Double Cultivation & Siege Event is now active!" />
-              <button class="sr-btn sr-btnGold" id="btn-send-gm-broadcast" style="white-space:nowrap;">📢 Broadcast Decree</button>
+              <input id="gm-broadcast-input" type="text" class="sr-input" value="By 2030.1 Decree of Supreme Admin creatergame31@gmail.com: Cosmic Singularity & Double Cultivation Event is active!" />
+              <button class="sr-btn sr-btnGold" id="btn-send-gm-broadcast" style="white-space:nowrap;">📢 Broadcast</button>
+              <button class="sr-btn sr-btnCyan" id="btn-schedule-gm-decree" style="white-space:nowrap;">⏱️ Schedule (${this.consoleDecreeIntervalSec}s)</button>
             </div>
-          </div>
-
-          <h4 class="sr-sectionTitle" style="margin-top:12px;">GM / Admin / Moderator Audit Log</h4>
-          <div style="display:flex;flex-direction:column;gap:5px;max-height:145px;overflow-y:auto;">
-            ${auditRowsHTML}
+            <div style="display:flex;flex-direction:column;gap:3px;">
+              ${scheduledDecreesHTML}
+            </div>
           </div>
         </div>
 
         <div>
-          <h4 class="sr-sectionTitle">Live Game Master (GM) & Moderator Command Controls</h4>
+          <h4 class="sr-sectionTitle">Live 2030 Game Master (GM) Quick Overrides & Audit Trail</h4>
           <div class="sr-card" style="display:flex;flex-direction:column;gap:8px;">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
               <button class="sr-btn ${this.gmSession.godmode ? 'sr-btnGold' : 'sr-btnGreen'}" id="btn-gm-godmode">
                 🛡️ Godmode & Infinite Qi: ${this.gmSession.godmode ? 'ENABLED' : 'OFF'}
               </button>
               <button class="sr-btn sr-btnCrimson" id="btn-gm-smite-all">
-                ⚡ Smite All Enemies (Instant Purge)
+                ⚡ Smite All Enemies (Purge)
               </button>
               <button class="sr-btn sr-btnGold" id="btn-gm-ascend-origin">
-                🌌 Ascend 4 Paths to Realm 22 (Origin)
+                🌌 Ascend 4 Paths to Realm 29 (2030)
               </button>
               <button class="sr-btn sr-btnCyan" id="btn-gm-max-citadel">
-                🏯 Max Citadel Lv.100 (100x) & VIP 15
+                🏯 Max Citadel Lv.200 (Era 20) & VIP 15
               </button>
               <button class="sr-btn sr-btnGreen" id="btn-gm-grant-treasury">
-                💎 Grant +1B Stones & +1T Cohort
+                💎 Grant +1B Stones & +1T Army
               </button>
               <button class="sr-btn" id="btn-gm-purge-karma">
-                ⚖️ Mod: Purge Red-Name & Set +1000 Karma
+                ⚖️ Mod: Purge Red-Name (+1000)
               </button>
             </div>
 
-            <div style="border-top:1px solid rgba(148,163,184,0.18);padding-top:8px;margin-top:2px;">
-              <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">📍 Instant GM Teleport & Radar Beacon</div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                <button class="sr-btn" data-gm-tp-x="640" data-gm-tp-y="360" data-gm-tp-label="Central Sanctum">🏯 Central Sanctum (640, 360)</button>
-                <button class="sr-btn" data-gm-tp-x="1280" data-gm-tp-y="720" data-gm-tp-label="Dragon Vein Citadel">🐉 Dragon Vein (1280, 720)</button>
-                <button class="sr-btn" data-gm-tp-x="2100" data-gm-tp-y="1150" data-gm-tp-label="Abyssal Rift Gate">🌀 Abyssal Rift (2100, 1150)</button>
-              </div>
-            </div>
-
-            <div style="border-top:1px solid rgba(148,163,184,0.18);padding-top:8px;margin-top:2px;">
-              <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">⏱️ Engine Time-Scale Override (Current: ${this.gmSession.timeScale}x)</div>
+            <div style="border-top:1px solid rgba(148,163,184,0.18);padding-top:6px;">
+              <div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">⏱️ Engine Time-Scale Override (Current: ${this.gmSession.timeScale}x)</div>
               <div style="display:flex;gap:6px;">
                 ${[0.5, 1.0, 2.0, 4.0]
                   .map(
@@ -1422,6 +2072,13 @@ export class VoxelRealmsHUD {
                   .join('')}
               </div>
             </div>
+
+            <div style="border-top:1px solid rgba(148,163,184,0.18);padding-top:6px;">
+              <div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">GM / Admin / 2030 Overseer Audit Log</div>
+              <div style="display:flex;flex-direction:column;gap:4px;max-height:110px;overflow-y:auto;">
+                ${auditRowsHTML}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1429,6 +2086,231 @@ export class VoxelRealmsHUD {
   }
 
   private bindGMAdminEvents(root: HTMLElement) {
+    // Mount Recharts component inside #gm-recharts-telemetry-mount
+    this.mountOrUpdateRechartsTelemetry();
+
+    root.querySelector('#btn-gm-sample-telemetry')?.addEventListener('click', () => {
+      const now = Date.now();
+      const load = Number((20 + Math.random() * 18).toFixed(1));
+      this.pushServerTelemetry({
+        timestamp: now,
+        timeLabel: new Date(now).toISOString().slice(11, 19),
+        serverLoadPercent: load,
+        predictedLoad2030Percent: Number(Math.min(99, load * 1.14 + 2.5).toFixed(1)),
+        wsThroughputKbps: Number((54 + Math.random() * 28).toFixed(1)),
+      });
+    });
+
+    // Sync inputs
+    const syncConsoleInputs = () => {
+      const itemInp = root.querySelector<HTMLInputElement>('#gm-item-name-input');
+      const qtyInp = root.querySelector<HTMLInputElement>('#gm-item-qty-input');
+      const tpXInp = root.querySelector<HTMLInputElement>('#gm-tp-x-input');
+      const tpYInp = root.querySelector<HTMLInputElement>('#gm-tp-y-input');
+      const realmSel = root.querySelector<HTMLSelectElement>('#gm-realm-select');
+      const shardSel = root.querySelector<HTMLSelectElement>('#gm-shard-select');
+      const userIdInp = root.querySelector<HTMLInputElement>('#gm-console-userid-input');
+      const reasonInp = root.querySelector<HTMLInputElement>('#gm-console-reason-input');
+      const cliInp = root.querySelector<HTMLInputElement>('#gm-console-cli-input');
+      const batchArea = root.querySelector<HTMLTextAreaElement>('#gm-batch-script-textarea');
+
+      if (itemInp) this.consoleItemName = itemInp.value.trim() || '2030 Chrono-Singularity Blade';
+      if (qtyInp) this.consoleBulkQuantity = Math.max(2, Number(qtyInp.value) || 50);
+      if (tpXInp) this.consoleTeleportX = Number(tpXInp.value) || 1280;
+      if (tpYInp) this.consoleTeleportY = Number(tpYInp.value) || 720;
+      if (realmSel) this.consoleTargetRealmIndex = Number(realmSel.value) ?? 29;
+      if (shardSel) this.consoleTargetShard = (shardSel.value as ServerShardId) || 'Shard-Alpha-2030';
+      if (userIdInp) this.consoleTargetUserId = userIdInp.value.trim() || 'rogue_fiend_07';
+      if (reasonInp) this.consoleModReason = reasonInp.value.trim() || 'Terminated by GM Console';
+      if (cliInp) this.consoleCliRaw = cliInp.value.trim();
+      if (batchArea) this.consoleBatchScriptText = batchArea.value;
+    };
+
+    // CLI execution button
+    root.querySelector('#btn-exec-cli-cmd')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      const parsed = parseGMConsoleInput(this.consoleCliRaw);
+      if (parsed) {
+        this.executeConsoleAction(parsed);
+      } else {
+        this.executeConsoleAction({
+          action: 'spawn_multiple_items',
+          itemName: this.consoleItemName,
+          quantity: this.consoleBulkQuantity,
+        });
+      }
+    });
+
+    // Single Action: spawn_item
+    root.querySelector('#btn-cmd-spawn-item')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      this.consoleCliRaw = `spawn_item ${this.consoleItemName.replace(/\s+/g, '_')} 1`;
+      this.executeConsoleAction({
+        action: 'spawn_item',
+        itemName: this.consoleItemName,
+        itemRarity: 'legendary',
+        quantity: 1,
+      });
+    });
+
+    // Bulk Action: spawn_multiple_items
+    root.querySelector('#btn-cmd-spawn-multiple-items')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      this.consoleCliRaw = `spawn_multiple_items ${this.consoleItemName.replace(/\s+/g, '_')} ${this.consoleBulkQuantity}`;
+      this.executeConsoleAction({
+        action: 'spawn_multiple_items',
+        itemName: this.consoleItemName,
+        itemRarity: 'singularity_relic',
+        quantity: this.consoleBulkQuantity,
+      });
+    });
+
+    // Single Action: teleport_player
+    root.querySelector('#btn-cmd-teleport-player')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      this.consoleCliRaw = `teleport_player ${this.consoleTargetUserId} ${this.consoleTeleportX} ${this.consoleTeleportY}`;
+      this.executeConsoleAction({
+        action: 'teleport_player',
+        targetUserId: this.consoleTargetUserId,
+        x: this.consoleTeleportX,
+        y: this.consoleTeleportY,
+      });
+    });
+
+    // Bulk Action: teleport_all_players
+    root.querySelector('#btn-cmd-teleport-all-players')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      this.consoleCliRaw = `teleport_all_players ${this.consoleTeleportX} ${this.consoleTeleportY}`;
+      this.executeConsoleAction({
+        action: 'teleport_all_players',
+        x: this.consoleTeleportX,
+        y: this.consoleTeleportY,
+      });
+    });
+
+    // Single Action: set_cultivation_realm
+    root.querySelector('#btn-cmd-set-realm')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      this.consoleCliRaw = `set_cultivation_realm ${this.consoleTargetRealmIndex} 9`;
+      this.executeConsoleAction({
+        action: 'set_cultivation_realm',
+        realmIndex: this.consoleTargetRealmIndex,
+        layer: 9,
+      });
+    });
+
+    // 2030 Batch Script Execution
+    root.querySelector('#btn-run-batch-script')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      const batch = executeGMBatchScript(this.gmSession, this.consoleBatchScriptText);
+      this.gmSession = batch.nextSession;
+      for (const res of batch.results) {
+        if (res.action === 'set_cultivation_realm') {
+          const rIdx = this.consoleTargetRealmIndex;
+          (['qi', 'body', 'soul', 'mind'] as CultivationPath[]).forEach((pKey) => {
+            const p = this.state.cultivation.paths[pKey];
+            p.realmIndex = rIdx;
+            p.layer = 9;
+            p.requiredEssence = getRequiredEssenceForLayer(rIdx, 9);
+            p.currentEssence = p.requiredEssence;
+          });
+        }
+        if (res.broadcastPayload) {
+          this.callbacks.onBroadcastNetworkMessage?.(
+            res.broadcastPayload.type,
+            res.broadcastPayload
+          );
+        }
+      }
+      this.persistState(true);
+      this.displayGMBroadcastBanner({
+        senderEmail: this.currentUser.email,
+        message: `[run_batch_script] Executed ${batch.results.length} commands affecting ${batch.totalAffectedEntities} entities.`,
+        timestamp: Date.now(),
+      });
+      this.renderModalContent();
+    });
+
+    // Moderation Action: kick_player
+    root.querySelector('#btn-cmd-kick-player')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      this.consoleCliRaw = `kick_player ${this.consoleTargetUserId} ${this.consoleModReason}`;
+      this.executeConsoleAction({
+        action: 'kick_player',
+        targetUserId: this.consoleTargetUserId,
+        reason: this.consoleModReason,
+      });
+    });
+
+    // Moderation Action: ban_player
+    root.querySelector('#btn-cmd-ban-player')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      this.consoleCliRaw = `ban_player ${this.consoleTargetUserId} ${this.consoleModReason}`;
+      this.executeConsoleAction({
+        action: 'ban_player',
+        targetUserId: this.consoleTargetUserId,
+        reason: this.consoleModReason,
+      });
+    });
+
+    // Cross-Shard Migration: migrate_shard
+    root.querySelector('#btn-cmd-migrate-shard')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      this.consoleCliRaw = `migrate_shard ${this.consoleTargetShard} ALL`;
+      this.executeConsoleAction({
+        action: 'migrate_shard',
+        targetShardId: this.consoleTargetShard,
+        targetUserId: 'ALL',
+      });
+    });
+
+    // Snapshot Rollback: rollback_snapshot
+    root.querySelector('#btn-cmd-rollback-snapshot')?.addEventListener('click', () => {
+      syncConsoleInputs();
+      this.consoleCliRaw = `rollback_snapshot latest`;
+      this.executeConsoleAction({
+        action: 'rollback_snapshot',
+        snapshotId: 'latest',
+      });
+    });
+
+    // Roster quick-select & quick kick/ban buttons
+    root.querySelectorAll<HTMLButtonElement>('[data-select-userid]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        syncConsoleInputs();
+        this.consoleTargetUserId = btn.getAttribute('data-select-userid') || 'rogue_fiend_07';
+        this.renderModalContent();
+      });
+    });
+
+    root.querySelectorAll<HTMLButtonElement>('[data-quick-kick]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        syncConsoleInputs();
+        const uid = btn.getAttribute('data-quick-kick') || this.consoleTargetUserId;
+        this.consoleTargetUserId = uid;
+        this.consoleCliRaw = `kick_player ${uid} ${this.consoleModReason}`;
+        this.executeConsoleAction({
+          action: 'kick_player',
+          targetUserId: uid,
+          reason: this.consoleModReason,
+        });
+      });
+    });
+
+    root.querySelectorAll<HTMLButtonElement>('[data-quick-ban]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        syncConsoleInputs();
+        const uid = btn.getAttribute('data-quick-ban') || this.consoleTargetUserId;
+        this.consoleTargetUserId = uid;
+        this.consoleCliRaw = `ban_player ${uid} ${this.consoleModReason}`;
+        this.executeConsoleAction({
+          action: 'ban_player',
+          targetUserId: uid,
+          reason: this.consoleModReason,
+        });
+      });
+    });
+
     root.querySelector('#btn-copy-admin-email')?.addEventListener('click', () => {
       if (navigator.clipboard) {
         navigator.clipboard.writeText(SUPREME_ADMIN_EMAIL).catch(() => {});
@@ -1460,6 +2342,16 @@ export class VoxelRealmsHUD {
       this.renderModalContent();
     });
 
+    root.querySelector('#btn-schedule-gm-decree')?.addEventListener('click', () => {
+      const inp = root.querySelector<HTMLInputElement>('#gm-broadcast-input');
+      const msg = inp?.value.trim() || `Scheduled 2030 Decree from ${SUPREME_ADMIN_EMAIL}`;
+      this.executeConsoleAction({
+        action: 'schedule_decree',
+        decreeIntervalSec: this.consoleDecreeIntervalSec,
+        decreeMessage: msg,
+      });
+    });
+
     root.querySelector('#btn-gm-godmode')?.addEventListener('click', () => {
       this.gmSession.godmode = !this.gmSession.godmode;
       this.gmSession.infiniteMana = this.gmSession.godmode;
@@ -1485,28 +2377,28 @@ export class VoxelRealmsHUD {
     root.querySelector('#btn-gm-ascend-origin')?.addEventListener('click', () => {
       (['qi', 'body', 'soul', 'mind'] as CultivationPath[]).forEach((pKey) => {
         const p = this.state.cultivation.paths[pKey];
-        p.realmIndex = 22; // Ultimate Origin
+        p.realmIndex = MAX_REALM_INDEX; // Realm 29: Eternal Dao Architect
         p.layer = 9;
-        p.requiredEssence = getRequiredEssenceForLayer(22, 9);
+        p.requiredEssence = getRequiredEssenceForLayer(MAX_REALM_INDEX, 9);
         p.currentEssence = p.requiredEssence;
       });
       this.gmSession = appendGMAuditLog(
         this.gmSession,
-        'GM_ASCEND_ULTIMATE_ORIGIN',
-        'Elevated Qi, Body, Soul, and Mind paths to Realm 22 (Ultimate Origin • Layer 9)'
+        'GM_ASCEND_2030_SINGULARITY',
+        'Elevated Qi, Body, Soul, and Mind paths to Realm 29 (Eternal Dao Architect • Layer 9)'
       );
       this.persistState(true);
       this.renderModalContent();
     });
 
     root.querySelector('#btn-gm-max-citadel')?.addEventListener('click', () => {
-      this.state.castleLevel = 100;
+      this.state.castleLevel = 200;
       this.state.vipLevel = 15;
       this.state.clanRank = 'grand_patriarch';
       this.gmSession = appendGMAuditLog(
         this.gmSession,
-        'GM_MAX_CITADEL_VIP',
-        'Set Citadel to Level 100 (Era 10 • 100x Power), VIP 15, and Grand Patriarch rank'
+        'GM_MAX_CITADEL_2030',
+        'Set Citadel to Level 200 (Era 20 · 1,000x Power), VIP 15, and Grand Patriarch rank'
       );
       this.persistState(true);
       if (this.viewportMode === '3d_voxel_citadel') {
@@ -1539,22 +2431,6 @@ export class VoxelRealmsHUD {
       );
       this.persistState(true);
       this.renderModalContent();
-    });
-
-    root.querySelectorAll<HTMLButtonElement>('[data-gm-tp-x]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const x = Number(btn.getAttribute('data-gm-tp-x') || '640');
-        const y = Number(btn.getAttribute('data-gm-tp-y') || '360');
-        const label = btn.getAttribute('data-gm-tp-label') || 'GM Destination';
-        this.callbacks.onGMAction?.({ type: 'teleport', value: { x, y } });
-        this.callbacks.onTriggerWorldPing?.(x, y, 'move', `GM Teleport: ${label}`);
-        this.gmSession = appendGMAuditLog(
-          this.gmSession,
-          'GM_TELEPORT',
-          `Teleported administrator to ${label} (${x}, ${y})`
-        );
-        this.renderModalContent();
-      });
     });
 
     root.querySelectorAll<HTMLButtonElement>('[data-gm-timescale]').forEach((btn) => {
